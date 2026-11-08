@@ -4,6 +4,8 @@ use godot::prelude::*;
 
 #[cfg(feature = "bots")]
 mod bots;
+#[cfg(feature = "brain")]
+mod brain;
 #[cfg(feature = "motor")]
 mod motor;
 #[cfg(feature = "snapshot")]

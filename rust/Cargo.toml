@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/dot-sim-math", "crates/dot-sim-bots", "crates/dot-sim-snapshot", "crates/dot-sim-motor", "crates/dot-sim-gdext"]
+members = ["crates/dot-sim-math", "crates/dot-sim-bots", "crates/dot-sim-brain", "crates/dot-sim-snapshot", "crates/dot-sim-motor", "crates/dot-sim-gdext"]
 
 [workspace.package]
 version = "0.1.0"
