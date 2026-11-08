@@ -1,0 +1,24 @@
+[package]
+name = "dot-sim-gdext"
+description = "The GDExtension: thin engine bindings over the pure crates, one cargo feature per module."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "dot_sim"
+crate-type = ["cdylib"]
+
+[dependencies]
+godot = "0.5.5"
+dot-sim-bots = { path = "../dot-sim-bots", optional = true }
+dot-sim-snapshot = { path = "../dot-sim-snapshot", optional = true }
+
+[features]
+default = ["bots"]
+bots = ["dep:dot-sim-bots"]
+snapshot = ["dep:dot-sim-snapshot"]
+# A web side module (wasm32-unknown-emscripten, nightly, -Zbuild-std); see docs/web.md.
+web = ["godot/api-custom", "godot/experimental-wasm", "godot/lazy-function-tables"]
+web-nothreads = ["web", "godot/experimental-wasm-nothreads"]

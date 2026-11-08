@@ -6,7 +6,7 @@
 
 | Path | What |
 | --- | --- |
-| `rust/` | the crate (`rust/Cargo.toml`, a `cdylib`); not present until the first native step lands, and every job skips with a notice until it is |
+| `rust/` | the Cargo workspace (`rust/Cargo.toml`); `crates/dot-sim-gdext` builds the one `cdylib` (`dot_sim`), the other crates are plain Rust ([design](design.md)); every job skips with a notice while `rust/Cargo.toml` is absent |
 | `ci/targets.tsv` | the platform matrix: platform, rust target, runner, library file, Godot feature key. **No web row, on purpose.** |
 | `ci/install.sh` | build one platform and lay it out under `addons/dot_sim/bin/<platform>/`, then regenerate `addons/dot_sim/dot_sim.gdextension` (both gitignored) |
 | `ci/package.sh` | zip one platform into `dist/dot_sim-<version>-<platform>.zip`, append `SHA256SUMS`, merge `natives.json` |
@@ -29,4 +29,4 @@ heavy -- bash ci/install.sh                    # builds for this machine (cargo;
 bash ci/package.sh --version 0.1.0 --platform linux-x86_64
 ```
 
-PH has no cargo: build jobs for this crate run in CI, or on a box with a Rust toolchain.
+Build on a box with a Rust toolchain (the build machine has stable Rust; run cargo through its build queue).

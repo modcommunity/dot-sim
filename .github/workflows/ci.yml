@@ -76,7 +76,7 @@ jobs:
             - name: fmt and clippy (one platform is enough)
               if: steps.crate.outputs.present == 'true' && matrix.platform == 'linux-x86_64'
               run: |
-                  cargo fmt --manifest-path rust/Cargo.toml --check
+                  cargo fmt --all --manifest-path rust/Cargo.toml --check
                   cargo clippy --manifest-path rust/Cargo.toml --target ${{ matrix.target }} --locked -- -D warnings
             - name: Unit tests (the library's own, no engine needed)
               if: steps.crate.outputs.present == 'true'

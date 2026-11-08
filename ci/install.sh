@@ -37,10 +37,15 @@ host_platform() {
 }
 
 # The library's file stem: [lib] name if set, else the package name, dashes to underscores.
+# In a workspace (rust/Cargo.toml has [workspace]) it is read from the crate building the cdylib.
 crate_name() {
-    local n
-    n="$(awk '/^\[/{s=$0} s=="[lib]" && $1=="name"{gsub(/[" ]/,"",$3); print $3; exit}' rust/Cargo.toml)"
-    [ -n "$n" ] || n="$(awk '/^\[/{s=$0} s=="[package]" && $1=="name"{gsub(/[" ]/,"",$3); print $3; exit}' rust/Cargo.toml)"
+    local n m=rust/Cargo.toml
+    if grep -q '^\[workspace\]' "$m"; then
+        m="$(grep -l 'cdylib' rust/crates/*/Cargo.toml | head -n 1)"
+        [ -n "$m" ] || { echo "install.sh: no cdylib crate under rust/crates" >&2; return 1; }
+    fi
+    n="$(awk '/^\[/{s=$0} s=="[lib]" && $1=="name"{gsub(/[" ]/,"",$3); print $3; exit}' "$m")"
+    [ -n "$n" ] || n="$(awk '/^\[/{s=$0} s=="[package]" && $1=="name"{gsub(/[" ]/,"",$3); print $3; exit}' "$m")"
     [ -n "$n" ] || { echo "install.sh: no crate name in rust/Cargo.toml" >&2; return 1; }
     echo "${n//-/_}"
 }
