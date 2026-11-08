@@ -1,0 +1,117 @@
+# Tag vX.Y.Z and the release gets, from this one workflow:
+#   - the GDScript addon zip and its SHA256SUMS (dot-ci's release.yml, as every addon),
+#   - dot_sim-X.Y.Z-<platform>.zip for each desktop platform in ci/targets.tsv, the natives.json
+#     manifest naming them and their sha256, and a combined SHA256SUMS line per zip.
+# The CDN is fed by the existing pipeline, not from here: the site publishes an addon's pack
+# from its release (hourly, or "Pull now") and holds the signing key, so this workflow
+# signs and uploads nothing to the content origin (dot-server-deploy docs/releases.md). A GDExtension
+# must be a real file on disk, so the natives are never inside the mounted pack; they ride with the
+# server install and the native client export, which unpack the per-platform zips at the project
+# root. Web builds take no part and keep running the GDScript twins.
+name: Release
+
+on:
+    push:
+        tags: ['v*']
+
+jobs:
+    validate:
+        uses: modcommunity/dot-ci/.github/workflows/validate.yml@v1
+        secrets:
+            DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}
+
+    addon:
+        needs: validate
+        uses: modcommunity/dot-ci/.github/workflows/release.yml@v1
+        permissions:
+            contents: write
+
+    native:
+        needs: validate
+        name: native ${{ matrix.platform }}
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 40
+        strategy:
+            fail-fast: true
+            matrix:
+                include:
+                    - platform: linux-x86_64
+                      target: x86_64-unknown-linux-gnu
+                      runner: ubuntu-22.04
+                    - platform: linux-arm64
+                      target: aarch64-unknown-linux-gnu
+                      runner: ubuntu-22.04-arm
+                    - platform: windows-x86_64
+                      target: x86_64-pc-windows-msvc
+                      runner: windows-2022
+                    - platform: macos-arm64
+                      target: aarch64-apple-darwin
+                      runner: macos-14
+                    - platform: macos-x86_64
+                      target: x86_64-apple-darwin
+                      runner: macos-13
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@v4
+            - name: A crate is required to release natives
+              run: |
+                  [ -f rust/Cargo.toml ] || { echo "::notice::no rust/Cargo.toml: this tag ships no natives"; echo "SKIP=1" >> "$GITHUB_ENV"; }
+            - name: Rust toolchain
+              if: env.SKIP != '1'
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+            - uses: Swatinem/rust-cache@v2
+              if: env.SKIP != '1'
+              with:
+                  workspaces: rust
+                  key: ${{ matrix.platform }}
+            - name: Build, lay out, package
+              if: env.SKIP != '1'
+              run: |
+                  bash ci/install.sh --platform ${{ matrix.platform }}
+                  bash ci/package.sh --version "${GITHUB_REF_NAME}" --platform ${{ matrix.platform }}
+            - uses: actions/upload-artifact@v4
+              if: env.SKIP != '1'
+              with:
+                  name: natives-${{ matrix.platform }}
+                  path: dist/
+                  retention-days: 3
+
+    attach:
+        needs: [addon, native]
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: write
+        env:
+            GH_TOKEN: ${{ github.token }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/download-artifact@v4
+              with:
+                  pattern: natives-*
+                  path: parts
+            - name: Merge the per-platform records and attach them
+              run: |
+                  mkdir -p dist
+                  if ! ls parts/*/dot_sim-*.zip >/dev/null 2>&1; then echo "no natives in this tag"; exit 0; fi
+                  cp parts/*/dot_sim-*.zip dist/
+                  cat parts/*/SHA256SUMS | sort -k2 > dist/SHA256SUMS.natives
+                  python3 -I - <<'PY'
+                  import glob, json
+                  out = None
+                  for p in sorted(glob.glob("parts/*/natives.json")):
+                      m = json.load(open(p))
+                      if out is None:
+                          out = {"version": m["version"], "files": {}}
+                      assert out["version"] == m["version"], p
+                      out["files"].update(m["files"])
+                  json.dump(out, open("dist/natives.json", "w"), indent=2, sort_keys=True)
+                  PY
+                  (cd dist && sha256sum -c SHA256SUMS.natives)
+                  # The release exists by now (the addon job made it, or the sync did); upload into it.
+                  gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes ""
+                  gh release upload "$GITHUB_REF_NAME" dist/dot_sim-*.zip dist/natives.json dist/SHA256SUMS.natives --clobber

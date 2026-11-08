@@ -1,0 +1,92 @@
+# GDScript half: dot-ci's validate (parse every script, run the suites, which exercise the
+# GDScript twins). Native half: build the library for every desktop platform in
+# ci/targets.tsv. Web is not in the matrix on purpose: web clients run the GDScript twins and
+# never load a library, so a native build can only ever be optional. The native jobs skip
+# with a notice until rust/Cargo.toml exists, and a red native job never stops the GDScript
+# half from reporting.
+name: CI
+
+on:
+    push:
+        branches: ['**']
+        paths-ignore:
+            - '**/*.md'
+    pull_request:
+    workflow_dispatch:
+
+jobs:
+    validate:
+        uses: modcommunity/dot-ci/.github/workflows/validate.yml@v1
+        secrets:
+            DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}
+
+    matrix-check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 3
+        steps:
+            - uses: actions/checkout@v4
+            - name: ci/ scripts parse, the matrix is whole and has no web row
+              run: bash ci/check.sh
+
+    native:
+        needs: matrix-check
+        name: native ${{ matrix.platform }}
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 40
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - platform: linux-x86_64
+                      target: x86_64-unknown-linux-gnu
+                      runner: ubuntu-22.04
+                    - platform: linux-arm64
+                      target: aarch64-unknown-linux-gnu
+                      runner: ubuntu-22.04-arm
+                    - platform: windows-x86_64
+                      target: x86_64-pc-windows-msvc
+                      runner: windows-2022
+                    - platform: macos-arm64
+                      target: aarch64-apple-darwin
+                      runner: macos-14
+                    - platform: macos-x86_64
+                      target: x86_64-apple-darwin
+                      runner: macos-13
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@v4
+            - name: Is there a crate yet
+              id: crate
+              run: |
+                  if [ -f rust/Cargo.toml ]; then echo "present=true" >> "$GITHUB_OUTPUT"
+                  else echo "::notice::rust/Cargo.toml not found: native build skipped"; echo "present=false" >> "$GITHUB_OUTPUT"; fi
+            - name: Rust toolchain
+              if: steps.crate.outputs.present == 'true'
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+                  components: rustfmt, clippy
+            - uses: Swatinem/rust-cache@v2
+              if: steps.crate.outputs.present == 'true'
+              with:
+                  workspaces: rust
+                  key: ${{ matrix.platform }}
+            - name: fmt and clippy (one platform is enough)
+              if: steps.crate.outputs.present == 'true' && matrix.platform == 'linux-x86_64'
+              run: |
+                  cargo fmt --manifest-path rust/Cargo.toml --check
+                  cargo clippy --manifest-path rust/Cargo.toml --target ${{ matrix.target }} --locked -- -D warnings
+            - name: Unit tests (the library's own, no engine needed)
+              if: steps.crate.outputs.present == 'true'
+              run: cargo test --manifest-path rust/Cargo.toml --target ${{ matrix.target }} --locked
+            - name: Build and lay out the library
+              if: steps.crate.outputs.present == 'true'
+              run: bash ci/install.sh --platform ${{ matrix.platform }}
+            - uses: actions/upload-artifact@v4
+              if: steps.crate.outputs.present == 'true'
+              with:
+                  name: dot_sim-${{ matrix.platform }}
+                  path: addons/dot_sim/bin/${{ matrix.platform }}
+                  retention-days: 7

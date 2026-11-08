@@ -21,3 +21,6 @@ export_presets.cfg
 # OS
 .DS_Store
 Thumbs.db
+
+# Release packaging output (ci/package.sh).
+dist/
