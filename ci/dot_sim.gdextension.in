@@ -1,0 +1,12 @@
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = 4.7
+reloadable = false
+
+[libraries]
+linux.x86_64 = "res://addons/dot_sim/bin/libdot_sim.linux.x86_64.so"
+linux.arm64 = "res://addons/dot_sim/bin/libdot_sim.linux.arm64.so"
+windows.x86_64 = "res://addons/dot_sim/bin/dot_sim.windows.x86_64.dll"
+windows.arm64 = "res://addons/dot_sim/bin/dot_sim.windows.arm64.dll"
+macos.x86_64 = "res://addons/dot_sim/bin/libdot_sim.macos.x86_64.dylib"
+macos.arm64 = "res://addons/dot_sim/bin/libdot_sim.macos.arm64.dylib"

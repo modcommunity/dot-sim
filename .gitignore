@@ -6,10 +6,15 @@
 #   ln -s ../../dot-bot/addons/dot_bot addons/dot_bot
 /addons/dot_core
 /addons/dot_bot
+# dot-bot's own dependencies:
+/addons/dot_sql
+/addons/godot-sqlite
+/addons/dot_bot_record
 
 # The built library and its .gdextension, written by ci/install.sh; never committed.
 /addons/dot_sim/bin/
 /addons/dot_sim/dot_sim.gdextension
+/addons/dot_sim/dot_sim.gdextension.uid
 
 # Rust
 rust/target/

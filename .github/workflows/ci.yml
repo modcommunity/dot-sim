@@ -1,0 +1,23 @@
+# The suites twice: validate.yml with no library (the script fallback every web client runs),
+# rust.yml with the Linux library loaded (clippy, cargo test, native-against-script parity).
+# Both live in modcommunity/dot-ci.
+name: CI
+
+on:
+    push:
+        branches: ['**']
+        paths-ignore:
+            - '**/*.md'
+    pull_request:
+    workflow_dispatch:
+
+jobs:
+    validate:
+        uses: modcommunity/dot-ci/.github/workflows/validate.yml@v1
+        secrets:
+            DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}
+
+    rust:
+        uses: modcommunity/dot-ci/.github/workflows/rust.yml@v1
+        secrets:
+            DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}

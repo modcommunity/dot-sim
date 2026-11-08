@@ -1,0 +1,29 @@
+# Tag it: the source on the release, then the per-platform libraries as zips beside it
+# (linux, windows, macos; x86_64 and arm64). Nothing goes to the web build or the CDN.
+name: Release
+
+on:
+    push:
+        tags: ['v*']
+
+jobs:
+    validate:
+        uses: modcommunity/dot-ci/.github/workflows/validate.yml@v1
+        secrets:
+            DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}
+
+    release:
+        needs: validate
+        uses: modcommunity/dot-ci/.github/workflows/release.yml@v1
+        permissions:
+            contents: write
+
+    native:
+        needs: release
+        uses: modcommunity/dot-ci/.github/workflows/rust.yml@v1
+        permissions:
+            contents: write
+        with:
+            binaries: true
+        secrets:
+            DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}

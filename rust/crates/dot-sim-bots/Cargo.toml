@@ -1,0 +1,10 @@
+[package]
+name = "dot-sim-bots"
+description = "Bot brain kernels: pure Rust, no engine types."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dot-sim-math = { path = "../dot-sim-math" }
