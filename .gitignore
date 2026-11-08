@@ -1,0 +1,23 @@
+# Godot 4
+.godot/
+
+# Sibling addons, linked for the suite (see README):
+#   ln -s ../../dot-core/addons/dot_core addons/dot_core
+#   ln -s ../../dot-bot/addons/dot_bot addons/dot_bot
+/addons/dot_core
+/addons/dot_bot
+
+# The built library and its .gdextension, written by ci/install.sh; never committed.
+/addons/dot_sim/bin/
+/addons/dot_sim/dot_sim.gdextension
+
+# Rust
+rust/target/
+
+# Exports
+build/
+export_presets.cfg
+
+# OS
+.DS_Store
+Thumbs.db
