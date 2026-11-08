@@ -1,6 +1,6 @@
 [package]
 name = "dot-sim-snapshot"
-description = "Snapshot encode and decode, byte-identical to the script codec (not written yet)."
+description = "Snapshot encode and decode, bit-identical to dot-net's script codec."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

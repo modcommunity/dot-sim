@@ -10,6 +10,9 @@
 /addons/dot_sql
 /addons/godot-sqlite
 /addons/dot_bot_record
+# The snapshot suite's (examples/snapshot_selftest): dot-net and its profiler.
+/addons/dot_net
+/addons/dot_profile
 
 # The built library and its .gdextension, written by ci/install.sh; never committed.
 /addons/dot_sim/bin/

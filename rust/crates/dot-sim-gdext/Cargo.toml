@@ -16,7 +16,7 @@ dot-sim-bots = { path = "../dot-sim-bots", optional = true }
 dot-sim-snapshot = { path = "../dot-sim-snapshot", optional = true }
 
 [features]
-default = ["bots"]
+default = ["bots", "snapshot"]
 bots = ["dep:dot-sim-bots"]
 snapshot = ["dep:dot-sim-snapshot"]
 # A web side module (wasm32-unknown-emscripten, nightly, -Zbuild-std); see docs/web.md.
