@@ -14,11 +14,13 @@ crate-type = ["cdylib"]
 godot = "0.5.5"
 dot-sim-bots = { path = "../dot-sim-bots", optional = true }
 dot-sim-snapshot = { path = "../dot-sim-snapshot", optional = true }
+dot-sim-motor = { path = "../dot-sim-motor", optional = true }
 
 [features]
-default = ["bots", "snapshot"]
+default = ["bots", "snapshot", "motor"]
 bots = ["dep:dot-sim-bots"]
 snapshot = ["dep:dot-sim-snapshot"]
+motor = ["dep:dot-sim-motor"]
 # A web side module (wasm32-unknown-emscripten, nightly, -Zbuild-std); see docs/web.md.
 web = ["godot/api-custom", "godot/experimental-wasm", "godot/lazy-function-tables"]
 web-nothreads = ["web", "godot/experimental-wasm-nothreads"]

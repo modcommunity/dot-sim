@@ -8,7 +8,7 @@ Native (Rust, GDExtension) twins of hot script code in the dot family, one modul
 | --- | --- | --- | --- | --- |
 | bots | `dot-sim-bots` | `DotSimBotSenses` | `DotBotBrain._candidates` (dot-bot) | the sight scan |
 | snapshot | `dot-sim-snapshot` | `DotSimSnapshotCodec` | `DotNetVar.write`/`read` behind `DotNetBehaviour._encode`/`read_state` (dot-net) | encode and decode; the same bytes, held by golden-byte and parity tests |
-| motor | (later) | | the movement motor | not started |
+| motor | `dot-sim-motor` | `DotSimFpsBody` | `DotFpsPhysicsBody` (dot-player-controller): sweep, rest contact, overlap and their fallbacks | the motor's collision queries, to the bit (dot-player-controller's `motor_native_parity` replays recorded inputs at 22/33/66 Hz and fuzzes the queries); the motor's slide loop stays in script |
 
 ## Layout
 
@@ -17,7 +17,8 @@ Native (Rust, GDExtension) twins of hot script code in the dot family, one modul
 | `rust/crates/dot-sim-math` | `Vec3` and `rad_to_deg`, rounded as the engine rounds (f32 vectors, f64 script floats) |
 | `rust/crates/dot-sim-bots` | pure kernels over plain arrays; no engine types, tested with `cargo test` |
 | `rust/crates/dot-sim-snapshot` | the snapshot codec, pure, like bots |
-| `rust/crates/dot-sim-gdext` | the one cdylib (`dot_sim`): thin bindings, one cargo feature per module (`bots`, `snapshot`), `web`/`web-nothreads` for the browser build |
+| `rust/crates/dot-sim-motor` | the motor's collision body over a `Space` trait (the engine queries), pure and tested with a fake floor; the gdext side is the engine `Space` |
+| `rust/crates/dot-sim-gdext` | the one cdylib (`dot_sim`): thin bindings, one cargo feature per module (`bots`, `snapshot`, `motor`), `web`/`web-nothreads` for the browser build |
 | `addons/dot_sim/dot_sim.gd` | `DotSim.has(module)`: which modules are loaded, safe with no library |
 | `ci/` | build matrix, installer and packaging ([native-ci.md](native-ci.md)); the installer writes the gitignored `addons/dot_sim/bin/<platform>/` and `.gdextension` |
 | `examples/sim_selftest.tscn` | the bots parity suite |

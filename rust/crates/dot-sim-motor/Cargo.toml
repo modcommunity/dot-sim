@@ -1,0 +1,10 @@
+[package]
+name = "dot-sim-motor"
+description = "The player motor's collision body, bit-identical to dot-player-controller's script; the engine's queries behind a trait."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dot-sim-math = { path = "../dot-sim-math" }
