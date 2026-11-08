@@ -1,7 +1,7 @@
 extends Node
 
 ## dot-sim's suite (`godot --headless --path . res://examples/sim_selftest.tscn`): each native module against the script it replaces, same inputs, same answers.
-## With no library installed it checks that the script fallback runs and says the native half was skipped; CI installs the library first.
+## With no library installed it checks that the script fallback runs and says the native half was skipped; CI's native-suites job installs it and sets , so a missing library fails.
 
 const CHANNEL := "dot.sim.selftest"
 
@@ -26,6 +26,8 @@ func _run() -> void:
 	print("dot-sim self-test")
 	var native := DotSim.has(&"bots")
 	print("  native bots module: %s" % ("loaded" if native else "absent (script fallback only)"))
+	if OS.get_environment("DOT_SIM_REQUIRE_NATIVE") == "1":
+		_check(native, "the library is loaded (DOT_SIM_REQUIRE_NATIVE=1)")
 	_test_fallback()
 	if native:
 		_test_scan_parity()

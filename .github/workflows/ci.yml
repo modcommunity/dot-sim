@@ -90,3 +90,47 @@ jobs:
                   name: dot_sim-${{ matrix.platform }}
                   path: addons/dot_sim/bin/${{ matrix.platform }}
                   retention-days: 7
+
+    # The suites again, with the library loaded: validate above runs them with no library, so
+    # only the script fallback. Here every native module is checked against its script twin
+    # (sim_selftest: bots; snapshot_selftest: the snapshot codec against dot-net's, golden
+    # bytes, decode parity, lossy 22/33 Hz runs with interest rings). DOT_SIM_REQUIRE_NATIVE
+    # makes a library that failed to load a failure instead of a skip.
+    native-suites:
+        needs: matrix-check
+        runs-on: ubuntu-latest
+        timeout-minutes: 40
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  path: project
+            - uses: actions/checkout@v4
+              with:
+                  repository: modcommunity/dot-ci
+                  ref: v1
+                  path: dot-ci
+            - name: Install the runtime's shared libraries
+              run: |
+                  sudo apt-get update -qq
+                  sudo apt-get install -y -qq --no-install-recommends libfontconfig1 libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6
+            - name: Fetch the pinned runtime
+              run: |
+                  GODOT="$(dot-ci/scripts/fetch-godot.sh --dest ~/.godot-ci/$(dot-ci/scripts/fetch-godot.sh --version))"
+                  echo "GODOT=$GODOT" >> "$GITHUB_ENV"
+                  "$GODOT" --version
+            - name: Resolve the addons this project declares
+              env:
+                  DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}
+              run: dot-ci/scripts/resolve-deps.sh project
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: project/rust
+                  key: native-suites
+            - name: Build and install the library
+              run: bash project/ci/install.sh --platform linux-x86_64
+            - name: The suites, native loaded
+              env:
+                  DOT_SIM_REQUIRE_NATIVE: '1'
+                  SUITES: examples/sim_selftest examples/snapshot_selftest
+              run: dot-ci/scripts/check.sh project

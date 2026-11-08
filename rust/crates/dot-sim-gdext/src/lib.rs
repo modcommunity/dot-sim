@@ -4,6 +4,8 @@ use godot::prelude::*;
 
 #[cfg(feature = "bots")]
 mod bots;
+#[cfg(feature = "snapshot")]
+mod snapshot;
 
 struct DotSimExtension;
 

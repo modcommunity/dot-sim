@@ -9,6 +9,7 @@ extends RefCounted
 ## Module name to the native class it registers.
 const MODULES := {
 	&"bots": &"DotSimBotSenses",
+	&"snapshot": &"DotSimSnapshotCodec",
 }
 
 
