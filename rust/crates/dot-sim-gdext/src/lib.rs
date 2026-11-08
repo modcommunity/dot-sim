@@ -6,6 +6,8 @@ use godot::prelude::*;
 mod batch;
 #[cfg(feature = "bots")]
 mod bots;
+#[cfg(feature = "brain")]
+mod brain;
 #[cfg(feature = "motor")]
 mod hulls;
 #[cfg(feature = "motor")]
