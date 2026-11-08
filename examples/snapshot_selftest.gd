@@ -1,11 +1,8 @@
 extends Node
 
-## The snapshot module's suite ([code]godot --headless --path . res://examples/snapshot_selftest.tscn[/code]):
-## dot-net's state codec in GDScript and in [code]DotSimSnapshotCodec[/code], the same inputs, the same
-## bytes, values, errors and reader positions. Then whole servers and clients, codec off and on, over
-## lossy links at 22 and 33 Hz with interest rings: every payload and every value received equal.
-## With no library it checks the fallback and says the native half was skipped; with
-## [code]DOT_SIM_REQUIRE_NATIVE=1[/code] (CI) a missing library fails instead.
+## The snapshot module's suite: dot-net's state codec in GDScript and in [code]DotSimSnapshotCodec[/code] on the same inputs (bytes, values, errors, reader positions), then servers and clients, codec off and on, over lossy 22-33 Hz links with interest rings.
+## Every payload and value received must be equal. With no library it checks the fallback and says the native half was skipped.
+## With [code]DOT_SIM_REQUIRE_NATIVE=1[/code] (CI) a missing library fails instead.
 
 const ROUNDS := 4000
 const NOISE := 1500
@@ -458,25 +455,12 @@ func _wire_run(codec: bool, tick_rate: int, snapshot_rate: int, loss: float, jit
 	var host := _wire_manager("WireServer" + tag, true, 1, tick_rate, snapshot_rate)
 	host.config.snapshot_workers = workers
 	if rings:
-		var distance := DotNetInterestDistance.new()
-		distance.radius = 45.0
-		distance.far_distance = 15.0
-		distance.far_every = 2
-		distance.far_tiers = 2
-		distance.evaluation_interval_sec = 0.0
-		host.interest = distance
+		host.interest = _wire_rings()
 	var clients: Array[DotNetManager] = []
-	var links: Array[Link] = []
-	var acks: Array[Link] = []
+	var links := _wire_links(PEERS, 0, loss, jitter)
+	var acks := _wire_links(PEERS, 5, loss, jitter)
 	for i in PEERS:
 		clients.append(_wire_manager("WireClient%s_%d" % [tag, i], false, 2 + i, tick_rate, snapshot_rate))
-		for list: Array[Link] in [links, acks]:
-			var link := Link.new()
-			link.rng.seed = 91 * (i + 1) + (5 if list == acks else 0)
-			link.loss = loss
-			link.duplicate = loss * 0.5
-			link.jitter = jitter
-			list.append(link)
 	var _s := host.setup()
 	for client in clients:
 		var _c := client.setup()
@@ -502,13 +486,7 @@ func _wire_run(codec: bool, tick_rate: int, snapshot_rate: int, loss: float, jit
 	host.spawner.register_factory(&"player", _player_body)
 	for i in PEERS:
 		host.add_peer(2 + i)
-	var server_side: Array[Player] = []
-	for i in PEERS + ENTITIES:
-		var owner := 2 + i if i < PEERS else 0
-		var made: DotNetIdentity = host.spawner.spawn(&"player", owner, Transform3D.IDENTITY, 0).value
-		server_side.append(made.behaviours[0] as Player)
-		for client in clients:
-			var _m := client.spawner.spawn_remote(&"player", made.net_id, owner, Transform3D.IDENTITY, 0)
+	var server_side := _wire_spawn(host, clients, PEERS, ENTITIES)
 	var codecs := 0
 	var seen := HashingContext.new()
 	var _g := seen.start(HashingContext.HASH_MD5)
@@ -518,24 +496,7 @@ func _wire_run(codec: bool, tick_rate: int, snapshot_rate: int, loss: float, jit
 	for t in range(1, TICKS + 1):
 		tick[0] = t
 		for i in server_side.size():
-			var p := server_side[i]
-			var a := float(i) * 0.61 + float(t) * (0.03 if i >= PEERS else 0.07)
-			var r := 5.0 + float(i % 11) * 6.0
-			p.position = Vector3(cos(a) * r, float(i % 3), sin(a) * r)
-			(p.identity.get_parent() as Node3D).position = p.position
-			p.velocity = Vector3(-sin(a), 0.0, cos(a)) * 3.0
-			p.yaw = fposmod(a * 57.0, 360.0)
-			p.pitch = float((t + i) % 40) - 20.0
-			p.spin = Quaternion(Vector3.UP, a)
-			if (t + i) % 9 == 0:
-				p.health = 100.0 - float((t * 7 + i) % 90)
-				p.ammo = (t + i) % 30
-			if (t + i) % 13 == 0:
-				p.points += 10
-				p.flags = (t * i) & 255
-				p.grounded = not p.grounded
-			if (t + i) % 31 == 0:
-				p.tag = "t%d" % t
+			_wire_move(server_side[i], i, t, i >= PEERS)
 		host.server_tick(t)
 		var row := PackedByteArray()
 		for index in PEERS:
@@ -546,13 +507,7 @@ func _wire_run(codec: bool, tick_rate: int, snapshot_rate: int, loss: float, jit
 				acks[index].push(t, clients[index].encode_ack())
 			for item in acks[index].due(t):
 				var _a := host.receive_ack_payload(2 + index, item[1])
-			var state := []
-			var ids := clients[index].registry.all()
-			ids.sort_custom(func(x: DotNetIdentity, y: DotNetIdentity) -> bool: return x.net_id < y.net_id)
-			for identity in ids:
-				var player := identity.behaviours[0] as Player
-				state.append([identity.net_id, player.received_values(), player.changes])
-			row.append_array(var_to_bytes(state))
+			row.append_array(var_to_bytes(_wire_state(clients[index])))
 		var _u := seen.update(row)
 		ticks.append(row)
 	for p in server_side:
@@ -560,18 +515,87 @@ func _wire_run(codec: bool, tick_rate: int, snapshot_rate: int, loss: float, jit
 	for client in clients:
 		for identity in client.registry.all():
 			codecs += 1 if (identity.behaviours[0] as DotNetBehaviour)._sim_codec != null else 0
-	host.stop()
-	for client in clients:
-		client.stop()
-	for node: Node in [host] + clients:
-		remove_child(node)
-		node.free()
-	DotNetSimCodec.enabled = true
+	_wire_free([host] + clients)
 	return {
 		"sent": sent.finish().hex_encode().substr(0, 12), "payloads": payloads[0],
 		"seen": seen.finish().hex_encode().substr(0, 12), "applied": applied, "failed": failed,
 		"codecs": codecs, "ticks": ticks,
 	}
+
+
+func _wire_free(managers: Array) -> void:
+	for node: DotNetManager in managers:
+		node.stop()
+		remove_child(node)
+		node.free()
+	DotNetSimCodec.enabled = true
+
+
+func _wire_rings() -> DotNetInterestDistance:
+	var distance := DotNetInterestDistance.new()
+	distance.radius = 45.0
+	distance.far_distance = 15.0
+	distance.far_every = 2
+	distance.far_tiers = 2
+	distance.evaluation_interval_sec = 0.0
+	return distance
+
+
+## One seeded [Link] per peer; [param salt] keeps the ack links' losses apart from the snapshots'.
+func _wire_links(peers: int, salt: int, loss: float, jitter: int) -> Array[Link]:
+	var list: Array[Link] = []
+	for i in peers:
+		var link := Link.new()
+		link.rng.seed = 91 * (i + 1) + salt
+		link.loss = loss
+		link.duplicate = loss * 0.5
+		link.jitter = jitter
+		list.append(link)
+	return list
+
+
+## The peers' own players, then the NPCs, on the server and as remote copies on every client.
+func _wire_spawn(host: DotNetManager, clients: Array[DotNetManager], peers: int, npcs: int) -> Array[Player]:
+	var server_side: Array[Player] = []
+	for i in peers + npcs:
+		var owner := 2 + i if i < peers else 0
+		var made: DotNetIdentity = host.spawner.spawn(&"player", owner, Transform3D.IDENTITY, 0).value
+		server_side.append(made.behaviours[0] as Player)
+		for client in clients:
+			var _m := client.spawner.spawn_remote(&"player", made.net_id, owner, Transform3D.IDENTITY, 0)
+	return server_side
+
+
+## Tick [param t] of entity [param i]: every value moves, some only every few ticks.
+func _wire_move(p: Player, i: int, t: int, npc: bool) -> void:
+	var a := float(i) * 0.61 + float(t) * (0.03 if npc else 0.07)
+	var r := 5.0 + float(i % 11) * 6.0
+	p.position = Vector3(cos(a) * r, float(i % 3), sin(a) * r)
+	(p.identity.get_parent() as Node3D).position = p.position
+	p.velocity = Vector3(-sin(a), 0.0, cos(a)) * 3.0
+	p.yaw = fposmod(a * 57.0, 360.0)
+	p.pitch = float((t + i) % 40) - 20.0
+	p.spin = Quaternion(Vector3.UP, a)
+	if (t + i) % 9 == 0:
+		p.health = 100.0 - float((t * 7 + i) % 90)
+		p.ammo = (t + i) % 30
+	if (t + i) % 13 == 0:
+		p.points += 10
+		p.flags = (t * i) & 255
+		p.grounded = not p.grounded
+	if (t + i) % 31 == 0:
+		p.tag = "t%d" % t
+
+
+## What a client holds: every entity's received values and change count, by net id.
+func _wire_state(client: DotNetManager) -> Array:
+	var state := []
+	var ids := client.registry.all()
+	ids.sort_custom(func(x: DotNetIdentity, y: DotNetIdentity) -> bool: return x.net_id < y.net_id)
+	for identity in ids:
+		var player := identity.behaviours[0] as Player
+		state.append([identity.net_id, player.received_values(), player.changes])
+	return state
 
 
 ## Script against codec on one player state, and on a client's whole 128-entity snapshot.
