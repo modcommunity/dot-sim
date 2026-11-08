@@ -9,6 +9,8 @@
 pub use dot_sim_math::Vec3;
 use dot_sim_math::{clampf, maxf, minf};
 
+pub mod slide;
+
 /// `Vector3.UP`.
 pub const UP: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 /// `Vector3.DOWN`.

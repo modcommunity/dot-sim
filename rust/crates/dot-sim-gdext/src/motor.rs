@@ -5,9 +5,10 @@
 //! `[fraction, nx, ny, nz, px, py, pz, depth, id_lo, id_hi]`: the collider id in two 32-bit
 //! halves, since an object id need not fit a double.
 
+use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
 use dot_sim_motor::{Body, Contact, Hit, Masks, Space, Vec3 as V3};
 use godot::classes::{
-    CapsuleShape3D, PhysicsDirectSpaceState3D, PhysicsRayQueryParameters3D,
+    CapsuleShape3D, Os, PhysicsDirectSpaceState3D, PhysicsRayQueryParameters3D,
     PhysicsShapeQueryParameters3D,
 };
 use godot::prelude::*;
@@ -157,6 +158,9 @@ impl Space for GdSpace {
 pub struct DotSimFpsBody {
     body: Body,
     space: GdSpace,
+    boxes: Vec<SlideBox>,
+    /// The engine checks a slide normal only in debug builds; the script's answer follows that.
+    math_checks: bool,
 }
 
 #[godot_api]
@@ -165,6 +169,8 @@ impl IRefCounted for DotSimFpsBody {
         Self {
             body: Body::default(),
             space: GdSpace::new(),
+            boxes: Vec::new(),
+            math_checks: Os::singleton().is_debug_build(),
         }
     }
 }
@@ -280,6 +286,92 @@ impl DotSimFpsBody {
         };
         self.body
             .overlaps(&mut self.space, mv(at), height, radius, m)
+    }
+
+    /// `DotFpsMotor._move` (mode 0, `flag` = walking) or `move_and_slide` (mode 1, `flag` = step),
+    /// against the map and, when `has_hulls`, the boxes in `hulls` (`DotFpsHullBody`).
+    /// `tun` is `[max_slide_iterations, crease_slide, skin_width, max_slide_planes, step_height,
+    /// radius, max_slope_radians]`. Returns `[px, py, pz, vx, vy, vz, travelled, flags,
+    /// crease_legs, split_legs, world_touches, hull_blocks, hull_stops]`, flags being
+    /// blocked | ran_out << 1 | stopped_on_duplicate << 2 | met_steep_face << 3.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn move_slide(
+        &mut self,
+        from: Vector3,
+        velocity: Vector3,
+        motion: Vector3,
+        height: f64,
+        mode: i64,
+        flag: bool,
+        tun: PackedFloat64Array,
+        has_hulls: bool,
+        hulls: VarArray,
+        collision_mask: i64,
+        pass_out_mask: i64,
+    ) -> PackedFloat64Array {
+        let p = tun.as_slice();
+        if p.len() < 7 {
+            return PackedFloat64Array::new();
+        }
+        let t = Tun {
+            max_slide_iterations: p[0] as i64,
+            crease_slide: p[1] != 0.0,
+            skin_width: p[2],
+            max_slide_planes: p[3] as i64,
+            step_height: p[4],
+            radius: p[5],
+            max_slope: p[6],
+            math_checks: self.math_checks,
+        };
+        self.boxes.clear();
+        if has_hulls {
+            for v in hulls.iter_shared() {
+                let b = v.try_to::<Aabb>().unwrap_or_default();
+                self.boxes.push(SlideBox {
+                    pos: mv(b.position),
+                    size: mv(b.size),
+                });
+            }
+        }
+        let m = Masks {
+            collision: collision_mask,
+            pass_out: pass_out_mask,
+        };
+        let boxes = if has_hulls {
+            Some(&self.boxes[..])
+        } else {
+            None
+        };
+        let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
+        let (from, velocity, motion) = (mv(from), mv(velocity), mv(motion));
+        let r = if mode == 0 {
+            mover.move_walking(from, velocity, motion, height, flag)
+        } else {
+            mover.move_and_slide(from, velocity, motion, height, flag)
+        };
+        let c = mover.counters;
+        let flags = r.blocked as i64
+            | (r.ran_out as i64) << 1
+            | (r.stopped_on_duplicate as i64) << 2
+            | (r.met_steep_face as i64) << 3;
+        PackedFloat64Array::from(
+            &[
+                r.position.x as f64,
+                r.position.y as f64,
+                r.position.z as f64,
+                r.velocity.x as f64,
+                r.velocity.y as f64,
+                r.velocity.z as f64,
+                r.travelled,
+                flags as f64,
+                c.crease_leg_ticks as f64,
+                c.split_leg_ticks as f64,
+                c.world_touches as f64,
+                c.hull_blocks as f64,
+                c.hull_stops as f64,
+            ][..],
+        )
     }
 
     /// Queries counted as the script counts them; the script resets it each tick.
