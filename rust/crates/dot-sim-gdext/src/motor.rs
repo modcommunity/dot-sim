@@ -197,7 +197,6 @@ fn packed(h: &Hit) -> PackedFloat64Array {
     )
 }
 
-
 /// Tick tunables: the slide's seven (see `move_slide`), then `jump_velocity, ground_snap,
 /// ground_snap_distance, crest_launch_speed_scale, max_speed, stop_speed, air_friction,
 /// max_velocity, backward_speed_scale, max_air_wish_speed, wall_slide_speed,
@@ -529,9 +528,8 @@ impl DotSimFpsBody {
         let mut c = TickCounters::default();
         let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
         let out = tick::pre(&mut mover, &mut s, &tt, rest_ok, rest_position, &mut c);
-        let flags = out.start_settled as i64
-            | (out.reused as i64) << 1
-            | (s.surface_cleared as i64) << 2;
+        let flags =
+            out.start_settled as i64 | (out.reused as i64) << 1 | (s.surface_cleared as i64) << 2;
         tick_out(&s, flags, &c, &mover.counters)
     }
 
@@ -598,9 +596,8 @@ impl DotSimFpsBody {
         let mut c = TickCounters::default();
         let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
         let out = tick::post(&mut mover, &mut s, &tt, &p, &mut c);
-        let flags = (s.surface_cleared as i64) << 2
-            | (out.stamp as i64) << 3
-            | (out.nonfinite as i64) << 4;
+        let flags =
+            (s.surface_cleared as i64) << 2 | (out.stamp as i64) << 3 | (out.nonfinite as i64) << 4;
         tick_out(&s, flags, &c, &mover.counters)
     }
 

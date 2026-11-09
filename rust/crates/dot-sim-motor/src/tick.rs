@@ -215,9 +215,7 @@ fn lift_clear<S: Space>(m: &mut Mover<'_, S>, s: &mut State) -> bool {
     while moved < limit {
         moved = minf(moved + lift, limit);
         let centre = capsule_centre(s.position + UP.scale(moved), s.height);
-        let inside = m
-            .body
-            .overlaps(m.space, centre, s.height, radius, m.masks);
+        let inside = m.body.overlaps(m.space, centre, s.height, radius, m.masks);
         if !inside {
             s.position = add_y(s.position, moved);
             return true;
@@ -346,8 +344,7 @@ fn apply_friction(s: &mut State, tt: &TickTun, p: &Post) {
     }
     let control = maxf(speed, tt.stop_speed);
     let edge = 1.0f64;
-    let drop =
-        control * p.friction_base * p.surface_friction * p.effect_friction * edge * p.delta;
+    let drop = control * p.friction_base * p.surface_friction * p.effect_friction * edge * p.delta;
     let scale = maxf(speed - drop, 0.0) / speed;
     s.velocity = s.velocity.scale(scale);
 }
@@ -516,8 +513,7 @@ fn move_tick<S: Space>(
     }
 
     if walking && plain.met_steep_face {
-        let lift =
-            (s.velocity.dot(stood_on) as f64) - maxf(velocity_in.dot(stood_on) as f64, 0.0);
+        let lift = (s.velocity.dot(stood_on) as f64) - maxf(velocity_in.dot(stood_on) as f64, 0.0);
         if lift > 0.0 {
             s.velocity = s.velocity - stood_on.scale(lift);
         }
