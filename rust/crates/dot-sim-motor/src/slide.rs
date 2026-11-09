@@ -123,7 +123,7 @@ fn flat_distance(a: Vec3, b: Vec3) -> f64 {
 }
 
 #[inline]
-fn capsule_centre(feet: Vec3, height: f64) -> Vec3 {
+pub(crate) fn capsule_centre(feet: Vec3, height: f64) -> Vec3 {
     feet + UP.scale(height * 0.5)
 }
 
@@ -325,20 +325,25 @@ impl<'a, S: Space> Mover<'a, S> {
         other
     }
 
-    fn rest_contact(&mut self, at: Vec3, height: f64, radius: f64) -> Hit {
+    pub(crate) fn rest_contact(&mut self, at: Vec3, height: f64, radius: f64) -> Hit {
         self.body
             .rest_contact(self.space, at, height, radius, self.masks)
     }
 
     /// `DotFpsMotorWalls._sweep`: sweeps a margin further and gives it back.
-    fn sweep(&mut self, centre: Vec3, motion: Vec3, height: f64) -> Hit {
+    pub(crate) fn sweep(&mut self, centre: Vec3, motion: Vec3, height: f64) -> Hit {
+        let radius = self.t.radius;
+        self.sweep_r(centre, motion, height, radius)
+    }
+
+    /// `DotFpsMotorWalls._sweep` with its `radius` argument.
+    pub(crate) fn sweep_r(&mut self, centre: Vec3, motion: Vec3, height: f64, radius: f64) -> Hit {
         let length = motion.length() as f64;
         if length <= 0.0 {
             return Hit::MISS;
         }
         let direction = motion.div_scalar(length);
         let margin = maxf(self.t.skin_width, length * SWEEP_TOLERANCE);
-        let radius = self.t.radius;
         let mut hit = self.body_sweep(centre, motion + direction.scale(margin), height, radius);
         if !hit.hit {
             return hit;
@@ -349,7 +354,7 @@ impl<'a, S: Space> Mover<'a, S> {
     }
 
     #[inline]
-    fn slide_along(&self, v: Vec3, n: Vec3) -> Vec3 {
+    pub(crate) fn slide_along(&self, v: Vec3, n: Vec3) -> Vec3 {
         if self.t.math_checks && !n.is_normalized() {
             return Vec3::default();
         }
@@ -357,7 +362,7 @@ impl<'a, S: Space> Mover<'a, S> {
     }
 
     #[inline]
-    fn is_floor(&self, n: Vec3) -> bool {
+    pub(crate) fn is_floor(&self, n: Vec3) -> bool {
         (n.angle_to(UP) as f64) <= self.t.max_slope
     }
 
@@ -671,7 +676,7 @@ impl<'a, S: Space> Mover<'a, S> {
     }
 
     /// `DotFpsMotor._edge_floor_normal`.
-    fn edge_floor_normal(&mut self, landing: &Hit, feet: Vec3, start_y: f64) -> Vec3 {
+    pub(crate) fn edge_floor_normal(&mut self, landing: &Hit, feet: Vec3, start_y: f64) -> Vec3 {
         if (landing.point.y as f64) - start_y > self.t.step_height + self.t.skin_width {
             return Vec3::default();
         }

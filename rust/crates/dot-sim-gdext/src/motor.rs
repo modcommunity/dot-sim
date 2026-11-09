@@ -6,6 +6,7 @@
 //! halves, since an object id need not fit a double.
 
 use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
+use dot_sim_motor::tick::{self, Post, State, TickCounters, TickTun};
 use dot_sim_motor::{Body, Contact, Hit, Masks, Space, Vec3 as V3};
 use godot::classes::{
     CapsuleShape3D, Os, PhysicsDirectSpaceState3D, PhysicsRayQueryParameters3D,
@@ -196,6 +197,103 @@ fn packed(h: &Hit) -> PackedFloat64Array {
     )
 }
 
+
+/// Tick tunables: the slide's seven (see `move_slide`), then `jump_velocity, ground_snap,
+/// ground_snap_distance, crest_launch_speed_scale, max_speed, stop_speed, air_friction,
+/// max_velocity, backward_speed_scale, max_air_wish_speed, wall_slide_speed,
+/// wall_run_vertical_damping`.
+const TICK_TUN_LEN: usize = 19;
+
+fn slide_tun(p: &[f64], math_checks: bool) -> Tun {
+    Tun {
+        max_slide_iterations: p[0] as i64,
+        crease_slide: p[1] != 0.0,
+        skin_width: p[2],
+        max_slide_planes: p[3] as i64,
+        step_height: p[4],
+        radius: p[5],
+        max_slope: p[6],
+        math_checks,
+    }
+}
+
+fn tick_tun(p: &[f64]) -> TickTun {
+    TickTun {
+        jump_velocity: p[7],
+        ground_snap: p[8] != 0.0,
+        ground_snap_distance: p[9],
+        crest_launch_speed_scale: p[10],
+        max_speed: p[11],
+        stop_speed: p[12],
+        air_friction: p[13],
+        max_velocity: p[14],
+        backward_speed_scale: p[15],
+        max_air_wish_speed: p[16],
+        wall_slide_speed: p[17],
+        wall_run_vertical_damping: p[18],
+    }
+}
+
+#[inline]
+fn v3(p: &[f64], i: usize) -> V3 {
+    V3::new(p[i] as f32, p[i + 1] as f32, p[i + 2] as f32)
+}
+
+/// The state block both tick halves take: `[px, py, pz, vx, vy, vz, nx, ny, nz, mode, id_lo,
+/// id_hi, height]`.
+const STATE_LEN: usize = 13;
+
+fn read_state(p: &[f64]) -> State {
+    State {
+        position: v3(p, 0),
+        velocity: v3(p, 3),
+        ground_normal: v3(p, 6),
+        mode: p[9] as i64,
+        ground_id: ((p[10] as u64) | ((p[11] as u64) << 32)) as i64,
+        height: p[12],
+        surface_cleared: false,
+    }
+}
+
+/// `[px, py, pz, vx, vy, vz, nx, ny, nz, mode, id_lo, id_hi, flags, depenetrated, embedded,
+/// lifted, stuck, duplicate_plane, crease_legs, split_legs, world_touches, hull_blocks,
+/// hull_stops]`.
+fn tick_out(
+    s: &State,
+    flags: i64,
+    c: &TickCounters,
+    m: &dot_sim_motor::slide::Counters,
+) -> PackedFloat64Array {
+    let id = s.ground_id as u64;
+    PackedFloat64Array::from(
+        &[
+            s.position.x as f64,
+            s.position.y as f64,
+            s.position.z as f64,
+            s.velocity.x as f64,
+            s.velocity.y as f64,
+            s.velocity.z as f64,
+            s.ground_normal.x as f64,
+            s.ground_normal.y as f64,
+            s.ground_normal.z as f64,
+            s.mode as f64,
+            (id & 0xffff_ffff) as f64,
+            (id >> 32) as f64,
+            flags as f64,
+            c.depenetrated as f64,
+            c.embedded as f64,
+            c.lifted as f64,
+            c.stuck as f64,
+            c.duplicate_plane as f64,
+            m.crease_leg_ticks as f64,
+            m.split_leg_ticks as f64,
+            m.world_touches as f64,
+            m.hull_blocks as f64,
+            m.hull_stops as f64,
+        ][..],
+    )
+}
+
 #[godot_api]
 impl DotSimFpsBody {
     /// The physics space queried; a new one forgets the rest memo.
@@ -372,6 +470,138 @@ impl DotSimFpsBody {
                 c.hull_stops as f64,
             ][..],
         )
+    }
+
+    /// Fills the hull boxes: `hulls_mode` 0 none, 1 the boxes in `hulls`, 2 the ones the last call
+    /// took (the hull body gathers once a tick, so the second half of a tick need not send them).
+    fn take_hulls(&mut self, hulls_mode: i64, hulls: &VarArray) -> bool {
+        match hulls_mode {
+            1 => {
+                self.boxes.clear();
+                for v in hulls.iter_shared() {
+                    let b = v.try_to::<Aabb>().unwrap_or_default();
+                    self.boxes.push(SlideBox {
+                        pos: mv(b.position),
+                        size: mv(b.size),
+                    });
+                }
+                true
+            }
+            2 => true,
+            _ => false,
+        }
+    }
+
+    /// The start of a motor tick (`DotFpsMotor._simulate` from `_depenetrate` to the start
+    /// ground check), for a plain GROUND or AIR walker without surfaces. `state` is the state
+    /// block (see `tick_out`) then `[rest_ok, rest_px, rest_py, rest_pz]`, `tun` the tick
+    /// tunables. Flags: start_settled | reused << 1 | surface_cleared << 2.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn motor_pre(
+        &mut self,
+        state: PackedFloat64Array,
+        tun: PackedFloat64Array,
+        hulls_mode: i64,
+        hulls: VarArray,
+        collision_mask: i64,
+        pass_out_mask: i64,
+    ) -> PackedFloat64Array {
+        let (sp, tp) = (state.as_slice(), tun.as_slice());
+        if sp.len() < STATE_LEN + 4 || tp.len() < TICK_TUN_LEN {
+            return PackedFloat64Array::new();
+        }
+        let t = slide_tun(tp, self.math_checks);
+        let tt = tick_tun(tp);
+        let has_hulls = self.take_hulls(hulls_mode, &hulls);
+        let m = Masks {
+            collision: collision_mask,
+            pass_out: pass_out_mask,
+        };
+        let boxes = if has_hulls {
+            Some(&self.boxes[..])
+        } else {
+            None
+        };
+        let mut s = read_state(sp);
+        let rest_ok = sp[STATE_LEN] != 0.0;
+        let rest_position = v3(sp, STATE_LEN + 1);
+        let mut c = TickCounters::default();
+        let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
+        let out = tick::pre(&mut mover, &mut s, &tt, rest_ok, rest_position, &mut c);
+        let flags = out.start_settled as i64
+            | (out.reused as i64) << 1
+            | (s.surface_cleared as i64) << 2;
+        tick_out(&s, flags, &c, &mover.counters)
+    }
+
+    /// The rest of a motor tick after the script's jump, wall and slide moves: friction, the wish
+    /// move, the push or gravity and wall slide, the clamp, the slide and the end ground check.
+    /// `state` is the state block then `[delta, flags, move_x, move_y, yaw, speed_base,
+    /// effect_max_speed, surface_max_speed_scale, friction_base, surface_friction,
+    /// effect_friction, ground_accel, air_accel, push x y z, gravity, start px py pz, start vx vy
+    /// vz]`, flags being jumped | sliding << 1 | deny_move << 2 | wall_slide_ok << 3 |
+    /// start_settled << 4. Out flags: surface_cleared << 2 | stamp << 3 | nonfinite << 4.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn motor_post(
+        &mut self,
+        state: PackedFloat64Array,
+        tun: PackedFloat64Array,
+        hulls_mode: i64,
+        hulls: VarArray,
+        collision_mask: i64,
+        pass_out_mask: i64,
+    ) -> PackedFloat64Array {
+        let (sp, tp) = (state.as_slice(), tun.as_slice());
+        if sp.len() < STATE_LEN + 23 || tp.len() < TICK_TUN_LEN {
+            return PackedFloat64Array::new();
+        }
+        let t = slide_tun(tp, self.math_checks);
+        let tt = tick_tun(tp);
+        let has_hulls = self.take_hulls(hulls_mode, &hulls);
+        let m = Masks {
+            collision: collision_mask,
+            pass_out: pass_out_mask,
+        };
+        let boxes = if has_hulls {
+            Some(&self.boxes[..])
+        } else {
+            None
+        };
+        let mut s = read_state(sp);
+        let q = &sp[STATE_LEN..];
+        let f = q[1] as i64;
+        let p = Post {
+            delta: q[0],
+            jumped: f & 1 != 0,
+            sliding: f & 2 != 0,
+            deny_move: f & 4 != 0,
+            wall_slide_ok: f & 8 != 0,
+            start_settled: f & 16 != 0,
+            move_x: q[2],
+            move_y: q[3],
+            yaw: q[4],
+            speed_base: q[5],
+            effect_max_speed: q[6],
+            surface_max_speed_scale: q[7],
+            friction_base: q[8],
+            surface_friction: q[9],
+            effect_friction: q[10],
+            ground_accel: q[11],
+            air_accel: q[12],
+            push: v3(q, 13),
+            gravity: q[16],
+            start_position: v3(q, 17),
+            start_velocity: v3(q, 20),
+        };
+        let mut c = TickCounters::default();
+        let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
+        let out = tick::post(&mut mover, &mut s, &tt, &p, &mut c);
+        let flags = (s.surface_cleared as i64) << 2
+            | (out.stamp as i64) << 3
+            | (out.nonfinite as i64) << 4;
+        tick_out(&s, flags, &c, &mover.counters)
     }
 
     /// Queries counted as the script counts them; the script resets it each tick.
