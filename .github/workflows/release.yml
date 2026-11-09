@@ -32,7 +32,7 @@ jobs:
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 40
         strategy:
-            fail-fast: true
+            fail-fast: false
             matrix:
                 include:
                     - platform: linux-x86_64
@@ -49,7 +49,7 @@ jobs:
                       runner: macos-14
                     - platform: macos-x86_64
                       target: x86_64-apple-darwin
-                      runner: macos-13
+                      runner: macos-15-intel
         defaults:
             run:
                 shell: bash
