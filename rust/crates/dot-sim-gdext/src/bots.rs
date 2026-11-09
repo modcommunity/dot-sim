@@ -7,7 +7,9 @@ use godot::prelude::*;
 #[derive(GodotClass)]
 #[class(base = RefCounted, init)]
 pub struct DotSimBotSenses {
-    table: Contacts,
+    pub(crate) table: Contacts,
+    /// The bodies' eyes, row for row with `table` once [`Self::load_eyes`] gave them.
+    pub(crate) eyes: Vec<V3>,
     found: Found,
 }
 
@@ -27,6 +29,7 @@ impl DotSimBotSenses {
             .min(points.len())
             .min(teams.len())
             .min(alive.len());
+        self.eyes.clear();
         let t = &mut self.table;
         t.ids.clear();
         t.points.clear();
@@ -41,6 +44,15 @@ impl DotSimBotSenses {
         t.teams.extend_from_slice(&teams.as_slice()[..n]);
         t.alive
             .extend(alive.as_slice()[..n].iter().map(|a| *a != 0));
+    }
+
+    /// The bodies' eyes, in the rows [`Self::load_contacts`] was given; the brain's native perceive
+    /// tests sight to them.
+    #[func]
+    fn load_eyes(&mut self, eyes: PackedVector3Array) {
+        self.eyes.clear();
+        self.eyes
+            .extend(eyes.as_slice().iter().map(|p| V3::new(p.x, p.y, p.z)));
     }
 
     /// Indices of the bodies inside range and cone (or still tracked), in table order.

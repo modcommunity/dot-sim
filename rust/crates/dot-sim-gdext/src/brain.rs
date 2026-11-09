@@ -3,6 +3,8 @@
 //! private ones (aim error, overshoot, tracked velocity, bursts, the aim's random stream) live here.
 //! The view comes back as `f64`s, never a `Vector2`, so the script's yaw keeps its precision.
 
+use crate::bots::DotSimBotSenses;
+use dot_sim_bots::{Found, Query, candidates};
 use dot_sim_brain::aim::direction;
 use dot_sim_brain::fight::FirstShot;
 use dot_sim_brain::num::rad_to_deg;
@@ -10,6 +12,13 @@ use dot_sim_brain::{
     Aim, AimProfile, FightIn, FightProfile, Strafe, Stream, Vec2 as V2, Vec3 as V3, View, fight,
 };
 use godot::prelude::*;
+use std::collections::HashMap;
+
+/// How long a line-of-sight answer is reused (DotBotBrain.SIGHT_REUSE).
+const SIGHT_REUSE: f64 = 0.045;
+
+/// How close a body is felt from outside the view cone (DotBotBrain.CLOSE_NOTICE).
+const CLOSE_NOTICE: f64 = 2.0;
 
 /// The `io` layout of [`DotSimBotMind::fight`] (and DotBotBrain's packing of it).
 mod io {
@@ -69,6 +78,25 @@ fn view_out(v: View) -> PackedFloat64Array {
 pub struct DotSimBotMind {
     aim: Aim,
     brain_key: i64,
+    /// Per target id: when sight was last asked, the answer and the world's sight stamp then.
+    sight: HashMap<i64, (f64, bool, i64)>,
+    found: Found,
+}
+
+impl DotSimBotMind {
+    /// The cached answer for `id`, if it is still good at `now` under `stamp`.
+    fn sight_held(&self, id: i64, now: f64, stamp: i64) -> Option<bool> {
+        match self.sight.get(&id) {
+            Some(&(at, seen, st)) if st == stamp && now >= at && now - at < SIGHT_REUSE => {
+                Some(seen)
+            }
+            _ => None,
+        }
+    }
+}
+
+fn gv(v: V3) -> Vector3 {
+    Vector3::new(v.x, v.y, v.z)
 }
 
 #[godot_api]
@@ -77,6 +105,8 @@ impl IRefCounted for DotSimBotMind {
         Self {
             aim: Aim::new(0),
             brain_key: 0,
+            sight: HashMap::new(),
+            found: Found::default(),
         }
     }
 }
@@ -349,5 +379,123 @@ impl DotSimBotMind {
                 strafe.eased,
             ][..],
         )
+    }
+
+    /// The brain's sight cache: 1 or 0 for a good cached answer about `id`, -1 when sight must be asked.
+    #[func]
+    fn sight_cached(&self, id: i64, now: f64, stamp: i64) -> i64 {
+        match self.sight_held(id, now, stamp) {
+            Some(seen) => seen as i64,
+            None => -1,
+        }
+    }
+
+    /// Files a sight answer about `id`.
+    #[func]
+    fn sight_put(&mut self, id: i64, now: f64, seen: bool, stamp: i64) {
+        self.sight.insert(id, (now, seen, stamp));
+    }
+
+    /// DotBotBrain._perceive's choice over `senses`' packed bodies: the native scan, the current
+    /// target kept while in sight, else the best score seen (`los(from, to) -> bool`, the world's
+    /// line of sight, asked of the chest then the head, through the sight cache). `flags`: 1 the
+    /// target is visible, 2 the bot sees through walls. Returns
+    /// [chosen row or -1, 1 when the visible target was found dead], or nothing when `senses`
+    /// has no eyes for its rows (the script then perceives).
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn perceive(
+        &mut self,
+        senses: Gd<DotSimBotSenses>,
+        me_id: i64,
+        me_team: i64,
+        eye: Vector3,
+        yaw: f64,
+        pitch: f64,
+        half_fov_deg: f64,
+        sight: f64,
+        target_id: i64,
+        flags: i64,
+        now: f64,
+        stamp: i64,
+        los: Callable,
+    ) -> PackedInt32Array {
+        let held = senses.bind();
+        let table = &held.table;
+        if held.eyes.len() != table.len() {
+            return PackedInt32Array::new();
+        }
+        let visible = flags & 1 != 0;
+        let through = flags & 2 != 0;
+        let eye3 = v3(eye);
+        let q = Query {
+            me_id,
+            me_team: me_team as i32,
+            eye: eye3,
+            forward: direction(yaw, pitch),
+            half_fov_deg,
+            sight,
+            close_notice: CLOSE_NOTICE,
+            target_id,
+            visible,
+        };
+        let mut found = std::mem::take(&mut self.found);
+        candidates(table, &q, &mut found);
+        // A dead visible target is forgotten before the choice (the script's _forget_target).
+        let (visible, target_id) = if found.target_dead {
+            (false, -1)
+        } else {
+            (visible, target_id)
+        };
+        let sees = |mind: &mut Self, row: usize| -> bool {
+            let id = table.ids[row];
+            if let Some(seen) = mind.sight_held(id, now, stamp) {
+                return seen;
+            }
+            let ask = |to: V3| {
+                los.call(&[eye.to_variant(), gv(to).to_variant()])
+                    .booleanize()
+            };
+            let seen = ask(table.points[row]) || ask(held.eyes[row]);
+            mind.sight.insert(id, (now, seen, stamp));
+            seen
+        };
+        let mut chosen: i32 = -1;
+        let mut current = false;
+        if visible {
+            for i in 0..found.index.len() {
+                let row = found.index[i] as usize;
+                if table.ids[row] == target_id {
+                    if through || sees(self, row) {
+                        chosen = found.index[i];
+                        current = true;
+                    }
+                    found.scores[i] = f32::INFINITY;
+                    break;
+                }
+            }
+        }
+        if !current {
+            loop {
+                let mut bi: Option<usize> = None;
+                let mut best = f64::INFINITY;
+                for (i, s) in found.scores.iter().enumerate() {
+                    if (*s as f64) < best {
+                        best = *s as f64;
+                        bi = Some(i);
+                    }
+                }
+                let Some(bi) = bi else { break };
+                let row = found.index[bi] as usize;
+                if through || sees(self, row) {
+                    chosen = found.index[bi];
+                    break;
+                }
+                found.scores[bi] = f32::INFINITY;
+            }
+        }
+        let dead = found.target_dead as i32;
+        self.found = found;
+        PackedInt32Array::from(&[chosen, dead][..])
     }
 }
