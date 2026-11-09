@@ -20,7 +20,7 @@ dot-sim-motor = { path = "../dot-sim-motor", optional = true }
 [features]
 default = ["bots", "brain", "snapshot", "motor"]
 bots = ["dep:dot-sim-bots"]
-brain = ["dep:dot-sim-brain"]
+brain = ["dep:dot-sim-brain", "bots"]
 snapshot = ["dep:dot-sim-snapshot"]
 motor = ["dep:dot-sim-motor"]
 # A web side module (wasm32-unknown-emscripten, nightly, -Zbuild-std); see docs/web.md.
