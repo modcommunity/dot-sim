@@ -1,5 +1,5 @@
 //! The rest of `DotFpsMotor._simulate` around the slide, for a plain walker (GROUND or AIR, no
-//! surfaces, no edge friction, not wall running): the ground check at the start of the tick
+//! surfaces, no edge friction): the ground check at the start of the tick
 //! ([`pre`]), then friction, the wish move, gravity, the clamp, the slide and the ground check at
 //! the end ([`post`]). The script keeps the jump, the wall moves, launches, slides and crouch, which
 //! run between the two and only write state.
@@ -19,7 +19,7 @@ pub const AIR: i64 = 1;
 pub const NOCLIP: i64 = 2;
 
 /// `DotFpsMotor.LEAVING_SPEED`.
-const LEAVING_SPEED: f64 = 0.1;
+pub(crate) const LEAVING_SPEED: f64 = 0.1;
 
 /// `DotFpsMotor.QUADRANTS`.
 const QUADRANTS: [(f32, f32); 4] = [(-1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (1.0, -1.0)];
@@ -97,6 +97,10 @@ pub struct Post {
     pub gravity: f64,
     pub start_position: Vec3,
     pub start_velocity: Vec3,
+    /// `state.is_wall_running()`: `_wall_run_vertical` in place of gravity.
+    pub wall_running: bool,
+    /// `tunables.gravity * tunables.wall_run_gravity_scale * _effects.gravity`.
+    pub wall_run_gravity: f64,
 }
 
 /// The script counters a tick adds to; the slide's own are in [`crate::slide::Counters`].
@@ -128,7 +132,7 @@ pub struct PostOut {
 
 /// `Vector2(x, y).length()`.
 #[inline]
-fn len2(x: f32, y: f32) -> f32 {
+pub(crate) fn len2(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt()
 }
 
@@ -561,6 +565,10 @@ pub fn post<S: Space>(
                 ground_cap += (len2(p.push.x, p.push.z) as f64) * p.delta;
             }
         }
+    } else if p.wall_running {
+        s.velocity.y = ((s.velocity.y as f64) - p.wall_run_gravity * p.delta) as f32;
+        s.velocity.y =
+            ((s.velocity.y as f64) * (-tt.wall_run_vertical_damping * p.delta).exp()) as f32;
     } else {
         let falling_at = s.velocity.y as f64;
         s.velocity.y = (falling_at - p.gravity * p.delta) as f32;

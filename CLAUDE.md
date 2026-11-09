@@ -1,6 +1,6 @@
 # dot-sim
 
-**Native twins of hot script code**, one optional GDExtension (Rust, godot-rust `godot` 0.5.5), one module per job: bots (dot-bot's sight scan), snapshot (dot-net's snapshot encode and decode), motor (dot-player-controller's collision queries, `DotSimFpsBody`). The script original stays the specification and the fallback.
+**Native twins of hot script code**, one optional GDExtension (Rust, godot-rust `godot` 0.5.5), one module per job: bots (dot-bot's sight scan), snapshot (dot-net's snapshot encode and decode), motor (dot-player-controller's collision queries and whole motor tick, `DotSimFpsBody`). The script original stays the specification and the fallback.
 
 Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is specific to dot-sim. The reasoning is in [docs/design.md](docs/design.md), the browser verdict in [docs/web.md](docs/web.md).
 

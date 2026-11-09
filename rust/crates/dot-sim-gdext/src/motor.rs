@@ -6,6 +6,7 @@
 //! halves, since an object id need not fit a double.
 
 use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
+use dot_sim_motor::full::{self, FullIn, FullTun, MoveCounters, Moves};
 use dot_sim_motor::tick::{self, Post, State, TickCounters, TickTun};
 use dot_sim_motor::{Body, Contact, Hit, Masks, Space, Vec3 as V3};
 use godot::classes::{
@@ -291,6 +292,148 @@ fn tick_out(
             m.hull_stops as f64,
         ][..],
     )
+}
+
+/// Reads a packed array front to back.
+struct Rd<'a> {
+    p: &'a [f64],
+    i: usize,
+}
+
+impl Rd<'_> {
+    fn f(&mut self) -> f64 {
+        self.i += 1;
+        self.p[self.i - 1]
+    }
+
+    fn b(&mut self) -> bool {
+        self.f() != 0.0
+    }
+
+    fn n(&mut self) -> i64 {
+        self.f() as i64
+    }
+
+    fn v(&mut self) -> V3 {
+        V3::new(self.f() as f32, self.f() as f32, self.f() as f32)
+    }
+}
+
+/// The move tunables after the tick ones, in [`FullTun`]'s field order.
+const FULL_TUN_LEN: usize = 56;
+
+fn full_tun(p: &[f64]) -> FullTun {
+    let mut r = Rd { p, i: TICK_TUN_LEN };
+    FullTun {
+        can_jump: r.b(),
+        auto_hop: r.b(),
+        jump_buffer_time: r.f(),
+        jump_cooldown: r.f(),
+        coyote_time: r.f(),
+        bhop_speed_cap_scale: r.f(),
+        jump_adds_to_velocity: r.b(),
+        launch_enabled: r.b(),
+        launch_button: r.n(),
+        launch_from_air: r.b(),
+        launch_velocity: r.f(),
+        launch_forward: r.f(),
+        launch_cooldown: r.f(),
+        dash_enabled: r.b(),
+        dash_button: r.n(),
+        dash_from_air: r.b(),
+        dash_speed: r.f(),
+        dash_cooldown: r.f(),
+        dash_lift: r.f(),
+        slide_enabled: r.b(),
+        slide_duration: r.f(),
+        slide_end_speed: r.f(),
+        can_crouch: r.b(),
+        slide_requires_sprint: r.b(),
+        slide_min_speed: r.f(),
+        slide_boost: r.f(),
+        slide_max_speed: r.f(),
+        slide_cooldown: r.f(),
+        friction: r.f(),
+        slide_friction: r.f(),
+        accelerate: r.f(),
+        slide_accelerate: r.f(),
+        wall_run_enabled: r.b(),
+        wall_jump_enabled: r.b(),
+        wall_run_auto: r.b(),
+        wall_run_on_jump: r.b(),
+        wall_run_jump_min_speed: r.f(),
+        wall_run_min_speed: r.f(),
+        wall_max_angle_from_vertical: r.f(),
+        wall_reach: r.f(),
+        wall_run_max_time: r.f(),
+        wall_run_end_speed: r.f(),
+        wall_run_requires_forward: r.b(),
+        wall_run_max_fall_speed: r.f(),
+        wall_run_max_approach_angle: r.f(),
+        wall_run_min_height: r.f(),
+        wall_run_min_length: r.f(),
+        wall_run_cooldown: r.f(),
+        wall_run_jump_max_angle: r.f(),
+        wall_run_turn_view: r.b(),
+        wall_run_turn_view_max_angle: r.f(),
+        wall_jump_max_per_wall: r.n(),
+        wall_jump_max_per_air: r.n(),
+        wall_jump_look_blend: r.f(),
+        wall_jump_push_speed: r.f(),
+        wall_jump_up_speed: r.f(),
+    }
+}
+
+/// The inputs after the state block in `motor_tick`.
+const FULL_IN_LEN: usize = 42;
+
+fn full_in(p: &[f64]) -> (FullIn, Moves) {
+    let mut r = Rd { p, i: STATE_LEN };
+    let mut inp = FullIn {
+        rest_ok: r.b(),
+        rest_position: r.v(),
+        delta: r.f(),
+        buttons: r.n(),
+        previous_buttons: r.n(),
+        move_x: r.f(),
+        move_y: r.f(),
+        yaw: r.f(),
+        ..FullIn::default()
+    };
+    let effects = r.n();
+    inp.deny_move = effects & 1 != 0;
+    inp.deny_jump = effects & 2 != 0;
+    inp.deny_crouch = effects & 4 != 0;
+    inp.effect_jump = r.f();
+    inp.launch = r.f();
+    inp.speed_base = r.f();
+    inp.effect_max_speed = r.f();
+    inp.surface_max_speed_scale = r.f();
+    inp.surface_friction = r.f();
+    inp.effect_friction = r.f();
+    inp.surface_accelerate = r.f();
+    inp.effect_accelerate = r.f();
+    inp.air_accel = r.f();
+    inp.push = r.v();
+    inp.gravity = r.f();
+    inp.wall_run_gravity = r.f();
+    let mv = Moves {
+        time_since_jump: r.f(),
+        time_since_grounded: r.f(),
+        time_since_jump_pressed: r.f(),
+        slide_time: r.f(),
+        slide_cooldown_left: r.f(),
+        launch_cooldown_left: r.f(),
+        dash_cooldown_left: r.f(),
+        wall_run_cooldown_left: r.f(),
+        wall_run_time: r.f(),
+        wall_run_spent: r.b(),
+        wall_jump_count: r.n(),
+        wall_jumps_in_air: r.n(),
+        wall_jump_heading: r.n(),
+        wall_normal: r.v(),
+    };
+    (inp, mv)
 }
 
 #[godot_api]
@@ -592,6 +735,8 @@ impl DotSimFpsBody {
             gravity: q[16],
             start_position: v3(q, 17),
             start_velocity: v3(q, 20),
+            wall_running: false,
+            wall_run_gravity: 0.0,
         };
         let mut c = TickCounters::default();
         let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
@@ -599,6 +744,79 @@ impl DotSimFpsBody {
         let flags =
             (s.surface_cleared as i64) << 2 | (out.stamp as i64) << 3 | (out.nonfinite as i64) << 4;
         tick_out(&s, flags, &c, &mover.counters)
+    }
+
+    /// A whole motor tick from `_depenetrate` to the end ground check (see `dot_sim_motor::full`).
+    /// `state` is the state block then the inputs and timers `full_in` reads, `tun` the tick
+    /// tunables then `full_tun`'s. Answers `tick_out`, then the timers in `full_in`'s order,
+    /// `view_turn`, and the slide, launch, dash, wall run and wall jump counts.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn motor_tick(
+        &mut self,
+        state: PackedFloat64Array,
+        tun: PackedFloat64Array,
+        hulls_mode: i64,
+        hulls: VarArray,
+        collision_mask: i64,
+        pass_out_mask: i64,
+    ) -> PackedFloat64Array {
+        let (sp, tp) = (state.as_slice(), tun.as_slice());
+        if sp.len() < STATE_LEN + FULL_IN_LEN || tp.len() < TICK_TUN_LEN + FULL_TUN_LEN {
+            return PackedFloat64Array::new();
+        }
+        let t = slide_tun(tp, self.math_checks);
+        let tt = tick_tun(tp);
+        let ft = full_tun(tp);
+        let has_hulls = self.take_hulls(hulls_mode, &hulls);
+        let m = Masks {
+            collision: collision_mask,
+            pass_out: pass_out_mask,
+        };
+        let boxes = if has_hulls {
+            Some(&self.boxes[..])
+        } else {
+            None
+        };
+        let mut s = read_state(sp);
+        let (inp, mut mv) = full_in(sp);
+        let mut c = TickCounters::default();
+        let mut mc = MoveCounters::default();
+        let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
+        let out = full::tick(&mut mover, &mut s, &tt, &ft, &inp, &mut mv, &mut c, &mut mc);
+        let flags = out.pre.start_settled as i64
+            | (out.pre.reused as i64) << 1
+            | (s.surface_cleared as i64) << 2
+            | (out.post.stamp as i64) << 3
+            | (out.post.nonfinite as i64) << 4;
+        let mut o = tick_out(&s, flags, &c, &mover.counters);
+        o.extend_array(&PackedFloat64Array::from(
+            &[
+                mv.time_since_jump,
+                mv.time_since_grounded,
+                mv.time_since_jump_pressed,
+                mv.slide_time,
+                mv.slide_cooldown_left,
+                mv.launch_cooldown_left,
+                mv.dash_cooldown_left,
+                mv.wall_run_cooldown_left,
+                mv.wall_run_time,
+                mv.wall_run_spent as i64 as f64,
+                mv.wall_jump_count as f64,
+                mv.wall_jumps_in_air as f64,
+                mv.wall_jump_heading as f64,
+                mv.wall_normal.x as f64,
+                mv.wall_normal.y as f64,
+                mv.wall_normal.z as f64,
+                out.view_turn,
+                mc.slides as f64,
+                mc.launches as f64,
+                mc.dashes as f64,
+                mc.wall_runs as f64,
+                mc.wall_jumps as f64,
+            ][..],
+        ));
+        o
     }
 
     /// Queries counted as the script counts them; the script resets it each tick.
