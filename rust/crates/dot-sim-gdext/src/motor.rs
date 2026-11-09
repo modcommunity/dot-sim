@@ -5,6 +5,7 @@
 //! `[fraction, nx, ny, nz, px, py, pz, depth, id_lo, id_hi]`: the collider id in two 32-bit
 //! halves, since an object id need not fit a double.
 
+use crate::hulls::DotSimHullWorld;
 use dot_sim_motor::full::{self, FullIn, FullTun, MoveCounters, Moves};
 use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
 use dot_sim_motor::tick::{self, Post, State, TickCounters, TickTun};
@@ -195,6 +196,8 @@ pub struct DotSimFpsBody {
     body: Body,
     space: GdSpace,
     boxes: Vec<SlideBox>,
+    /// The players' world hulls mode 3 gathers from, and this body's slot in it.
+    world: Option<(Gd<DotSimHullWorld>, i64)>,
     /// The engine checks a slide normal only in debug builds; the script's answer follows that.
     math_checks: bool,
 }
@@ -206,6 +209,7 @@ impl IRefCounted for DotSimFpsBody {
             body: Body::default(),
             space: GdSpace::new(),
             boxes: Vec::new(),
+            world: None,
             math_checks: Os::singleton().is_debug_build(),
         }
     }
@@ -648,10 +652,19 @@ impl DotSimFpsBody {
         )
     }
 
+    /// The hull world hulls mode 3 gathers from and this body's slot in it; null for none.
+    #[func]
+    fn set_hull_world(&mut self, world: Option<Gd<DotSimHullWorld>>, slot: i64) {
+        self.world = world.map(|w| (w, slot));
+    }
+
     /// Fills the hull boxes: `hulls_mode` 0 none, 1 the boxes in `hulls`, 2 the ones the last call
-    /// took (the hull body gathers once a tick, so the second half of a tick need not send them).
-    fn take_hulls(&mut self, hulls_mode: i64, hulls: &VarArray) -> bool {
-        match hulls_mode {
+    /// took (the hull body gathers once a tick, so the second half of a tick need not send them),
+    /// 3 the hull world's for a mover standing at `me` ([`DotSimHullWorld`]). `None` when mode 3
+    /// has no answer (no world, the loop is not running, a lag-compensated mover): the caller
+    /// answers empty and the script gathers.
+    fn take_hulls(&mut self, hulls_mode: i64, hulls: &VarArray, me: V3) -> Option<bool> {
+        Some(match hulls_mode {
             1 => {
                 self.boxes.clear();
                 for v in hulls.iter_shared() {
@@ -664,8 +677,16 @@ impl DotSimFpsBody {
                 true
             }
             2 => true,
+            3 => {
+                let (w, slot) = self.world.as_mut()?;
+                let slot = *slot;
+                if !w.bind_mut().fill(slot, me, false, &mut self.boxes) {
+                    return None;
+                }
+                true
+            }
             _ => false,
-        }
+        })
     }
 
     /// The start of a motor tick (`DotFpsMotor._simulate` from `_depenetrate` to the start
@@ -689,7 +710,9 @@ impl DotSimFpsBody {
         }
         let t = slide_tun(tp, self.math_checks);
         let tt = tick_tun(tp);
-        let has_hulls = self.take_hulls(hulls_mode, &hulls);
+        let Some(has_hulls) = self.take_hulls(hulls_mode, &hulls, v3(sp, 0)) else {
+            return PackedFloat64Array::new();
+        };
         let m = Masks {
             collision: collision_mask,
             pass_out: pass_out_mask,
@@ -734,7 +757,9 @@ impl DotSimFpsBody {
         }
         let t = slide_tun(tp, self.math_checks);
         let tt = tick_tun(tp);
-        let has_hulls = self.take_hulls(hulls_mode, &hulls);
+        let Some(has_hulls) = self.take_hulls(hulls_mode, &hulls, v3(sp, 0)) else {
+            return PackedFloat64Array::new();
+        };
         let m = Masks {
             collision: collision_mask,
             pass_out: pass_out_mask,
@@ -803,7 +828,9 @@ impl DotSimFpsBody {
         let t = slide_tun(tp, self.math_checks);
         let tt = tick_tun(tp);
         let ft = full_tun(tp);
-        let has_hulls = self.take_hulls(hulls_mode, &hulls);
+        let Some(has_hulls) = self.take_hulls(hulls_mode, &hulls, v3(sp, 0)) else {
+            return PackedFloat64Array::new();
+        };
         let m = Masks {
             collision: collision_mask,
             pass_out: pass_out_mask,
