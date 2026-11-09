@@ -944,7 +944,8 @@ pub fn tick<S: Space>(
         sliding,
         deny_move: inp.deny_move,
         wall_slide_ok: wall_slide_ok(s, &x, mv, wall),
-        start_settled: pre.start_settled,
+        // A start that only reused the ground stamp proves nothing about the end of the tick (the script clears start_settled then).
+        start_settled: pre.start_settled && !pre.reused,
         move_x: inp.move_x,
         move_y: inp.move_y,
         yaw: inp.yaw,
