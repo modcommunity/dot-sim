@@ -2,6 +2,8 @@
 
 use godot::prelude::*;
 
+#[cfg(feature = "motor")]
+mod batch;
 #[cfg(feature = "bots")]
 mod bots;
 #[cfg(feature = "motor")]

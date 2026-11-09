@@ -296,40 +296,47 @@ fn read_state(p: &[f64]) -> State {
 /// `[px, py, pz, vx, vy, vz, nx, ny, nz, mode, id_lo, id_hi, flags, depenetrated, embedded,
 /// lifted, stuck, duplicate_plane, crease_legs, split_legs, world_touches, hull_blocks,
 /// hull_stops]`.
+fn tick_vals(
+    s: &State,
+    flags: i64,
+    c: &TickCounters,
+    m: &dot_sim_motor::slide::Counters,
+) -> [f64; 23] {
+    let id = s.ground_id as u64;
+    [
+        s.position.x as f64,
+        s.position.y as f64,
+        s.position.z as f64,
+        s.velocity.x as f64,
+        s.velocity.y as f64,
+        s.velocity.z as f64,
+        s.ground_normal.x as f64,
+        s.ground_normal.y as f64,
+        s.ground_normal.z as f64,
+        s.mode as f64,
+        (id & 0xffff_ffff) as f64,
+        (id >> 32) as f64,
+        flags as f64,
+        c.depenetrated as f64,
+        c.embedded as f64,
+        c.lifted as f64,
+        c.stuck as f64,
+        c.duplicate_plane as f64,
+        m.crease_leg_ticks as f64,
+        m.split_leg_ticks as f64,
+        m.world_touches as f64,
+        m.hull_blocks as f64,
+        m.hull_stops as f64,
+    ]
+}
+
 fn tick_out(
     s: &State,
     flags: i64,
     c: &TickCounters,
     m: &dot_sim_motor::slide::Counters,
 ) -> PackedFloat64Array {
-    let id = s.ground_id as u64;
-    PackedFloat64Array::from(
-        &[
-            s.position.x as f64,
-            s.position.y as f64,
-            s.position.z as f64,
-            s.velocity.x as f64,
-            s.velocity.y as f64,
-            s.velocity.z as f64,
-            s.ground_normal.x as f64,
-            s.ground_normal.y as f64,
-            s.ground_normal.z as f64,
-            s.mode as f64,
-            (id & 0xffff_ffff) as f64,
-            (id >> 32) as f64,
-            flags as f64,
-            c.depenetrated as f64,
-            c.embedded as f64,
-            c.lifted as f64,
-            c.stuck as f64,
-            c.duplicate_plane as f64,
-            m.crease_leg_ticks as f64,
-            m.split_leg_ticks as f64,
-            m.world_touches as f64,
-            m.hull_blocks as f64,
-            m.hull_stops as f64,
-        ][..],
-    )
+    PackedFloat64Array::from(&tick_vals(s, flags, c, m)[..])
 }
 
 /// Reads a packed array front to back.
@@ -820,66 +827,19 @@ impl DotSimFpsBody {
         collision_mask: i64,
         pass_out_mask: i64,
     ) -> PackedFloat64Array {
-        let at = prof_start();
-        let (sp, tp) = (state.as_slice(), tun.as_slice());
-        if sp.len() < STATE_LEN + FULL_IN_LEN || tp.len() < TICK_TUN_LEN + FULL_TUN_LEN {
+        let mut o = Vec::with_capacity(TICK_OUT_LEN);
+        if !self.tick_into(
+            state.as_slice(),
+            tun.as_slice(),
+            hulls_mode,
+            &hulls,
+            collision_mask,
+            pass_out_mask,
+            &mut o,
+        ) {
             return PackedFloat64Array::new();
         }
-        let t = slide_tun(tp, self.math_checks);
-        let tt = tick_tun(tp);
-        let ft = full_tun(tp);
-        let Some(has_hulls) = self.take_hulls(hulls_mode, &hulls, v3(sp, 0)) else {
-            return PackedFloat64Array::new();
-        };
-        let m = Masks {
-            collision: collision_mask,
-            pass_out: pass_out_mask,
-        };
-        let boxes = if has_hulls {
-            Some(&self.boxes[..])
-        } else {
-            None
-        };
-        let mut s = read_state(sp);
-        let (inp, mut mv) = full_in(sp);
-        let mut c = TickCounters::default();
-        let mut mc = MoveCounters::default();
-        let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
-        let out = full::tick(&mut mover, &mut s, &tt, &ft, &inp, &mut mv, &mut c, &mut mc);
-        let flags = out.pre.start_settled as i64
-            | (out.pre.reused as i64) << 1
-            | (s.surface_cleared as i64) << 2
-            | (out.post.stamp as i64) << 3
-            | (out.post.nonfinite as i64) << 4;
-        let mut o = tick_out(&s, flags, &c, &mover.counters);
-        o.extend_array(&PackedFloat64Array::from(
-            &[
-                mv.time_since_jump,
-                mv.time_since_grounded,
-                mv.time_since_jump_pressed,
-                mv.slide_time,
-                mv.slide_cooldown_left,
-                mv.launch_cooldown_left,
-                mv.dash_cooldown_left,
-                mv.wall_run_cooldown_left,
-                mv.wall_run_time,
-                mv.wall_run_spent as i64 as f64,
-                mv.wall_jump_count as f64,
-                mv.wall_jumps_in_air as f64,
-                mv.wall_jump_heading as f64,
-                mv.wall_normal.x as f64,
-                mv.wall_normal.y as f64,
-                mv.wall_normal.z as f64,
-                out.view_turn,
-                mc.slides as f64,
-                mc.launches as f64,
-                mc.dashes as f64,
-                mc.wall_runs as f64,
-                mc.wall_jumps as f64,
-            ][..],
-        ));
-        prof_end(PROF_TICK, at);
-        o
+        PackedFloat64Array::from(&o[..])
     }
 
     /// Times every engine query and every `motor_tick` from now on (all bodies), for a profile run.
@@ -927,5 +887,89 @@ impl DotSimFpsBody {
     #[func]
     fn rest_memo_hits(&self) -> i64 {
         self.body.rest_memo_hits
+    }
+}
+
+/// Values in a whole tick's input row: the state block then `full_in`'s.
+pub(crate) const TICK_IN_LEN: usize = STATE_LEN + FULL_IN_LEN;
+/// Values a whole tick answers: `tick_out`, the timers, `view_turn` and the move counts.
+pub(crate) const TICK_OUT_LEN: usize = 45;
+
+impl DotSimFpsBody {
+    /// `motor_tick` on slices, its answer appended to `o`; false (nothing appended) where
+    /// `motor_tick` answers empty. One body for the single call and [`crate::batch`]'s.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn tick_into(
+        &mut self,
+        sp: &[f64],
+        tp: &[f64],
+        hulls_mode: i64,
+        hulls: &VarArray,
+        collision_mask: i64,
+        pass_out_mask: i64,
+        o: &mut Vec<f64>,
+    ) -> bool {
+        let at = prof_start();
+        if sp.len() < STATE_LEN + FULL_IN_LEN || tp.len() < TICK_TUN_LEN + FULL_TUN_LEN {
+            return false;
+        }
+        let t = slide_tun(tp, self.math_checks);
+        let tt = tick_tun(tp);
+        let ft = full_tun(tp);
+        let Some(has_hulls) = self.take_hulls(hulls_mode, hulls, v3(sp, 0)) else {
+            return false;
+        };
+        let m = Masks {
+            collision: collision_mask,
+            pass_out: pass_out_mask,
+        };
+        let boxes = if has_hulls {
+            Some(&self.boxes[..])
+        } else {
+            None
+        };
+        let mut s = read_state(sp);
+        let (inp, mut mv) = full_in(sp);
+        let mut c = TickCounters::default();
+        let mut mc = MoveCounters::default();
+        let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
+        let out = full::tick(&mut mover, &mut s, &tt, &ft, &inp, &mut mv, &mut c, &mut mc);
+        let flags = out.pre.start_settled as i64
+            | (out.pre.reused as i64) << 1
+            | (s.surface_cleared as i64) << 2
+            | (out.post.stamp as i64) << 3
+            | (out.post.nonfinite as i64) << 4;
+        o.extend_from_slice(&tick_vals(&s, flags, &c, &mover.counters));
+        o.extend_from_slice(&[
+            mv.time_since_jump,
+            mv.time_since_grounded,
+            mv.time_since_jump_pressed,
+            mv.slide_time,
+            mv.slide_cooldown_left,
+            mv.launch_cooldown_left,
+            mv.dash_cooldown_left,
+            mv.wall_run_cooldown_left,
+            mv.wall_run_time,
+            mv.wall_run_spent as i64 as f64,
+            mv.wall_jump_count as f64,
+            mv.wall_jumps_in_air as f64,
+            mv.wall_jump_heading as f64,
+            mv.wall_normal.x as f64,
+            mv.wall_normal.y as f64,
+            mv.wall_normal.z as f64,
+            out.view_turn,
+            mc.slides as f64,
+            mc.launches as f64,
+            mc.dashes as f64,
+            mc.wall_runs as f64,
+            mc.wall_jumps as f64,
+        ]);
+        prof_end(PROF_TICK, at);
+        true
+    }
+
+    /// The hull world this body gathers from and its slot in it.
+    pub(crate) fn hull_world(&self) -> Option<(Gd<DotSimHullWorld>, i64)> {
+        self.world.clone()
     }
 }

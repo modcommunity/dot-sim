@@ -142,6 +142,23 @@ impl DotSimHullWorld {
 }
 
 impl DotSimHullWorld {
+    /// Where slot `slot` stands, for a batch that moves it and may have to put it back.
+    pub fn feet(&self, slot: i64) -> Option<V3> {
+        usize::try_from(slot)
+            .ok()
+            .and_then(|s| self.feet.get(s))
+            .copied()
+    }
+
+    pub fn set_feet(&mut self, slot: i64, at: V3) {
+        if let Some(f) = usize::try_from(slot)
+            .ok()
+            .and_then(|s| self.feet.get_mut(s))
+        {
+            *f = at;
+        }
+    }
+
     /// Fills `out` with the boxes slot `slot`, standing at `me`, stops at. False (nothing
     /// written) when the world is not live or, unless `any`, the slot may not gather natively.
     pub fn fill(&mut self, slot: i64, me: V3, any: bool, out: &mut Vec<SlideBox>) -> bool {
