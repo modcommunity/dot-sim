@@ -82,6 +82,9 @@ jobs:
 
     attach:
         needs: [addon, native]
+        # A platform that cannot build (a macOS runner the account cannot get) must not withhold the
+        # others: attach whatever was built; natives.json names exactly what is there.
+        if: ${{ !cancelled() && needs.addon.result == 'success' }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
