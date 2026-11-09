@@ -6,7 +6,9 @@
 //! The same arithmetic rules as [`crate::tick`]: script floats are `f64`, vectors `f32`.
 
 use crate::slide::{Mover, capsule_centre};
-use crate::tick::{self, AIR, GROUND, LEAVING_SPEED, Post, PostOut, PreOut, State, TickCounters, TickTun, len2};
+use crate::tick::{
+    self, AIR, GROUND, LEAVING_SPEED, Post, PostOut, PreOut, State, TickCounters, TickTun, len2,
+};
 use crate::{Hit, Space, UP, Vec3};
 use dot_sim_math::{maxf, minf, rad_to_deg};
 use std::f64::consts::{PI, TAU};
@@ -267,7 +269,11 @@ fn try_jump(s: &mut State, x: &Ctx, mv: &mut Moves) -> bool {
     if !(s.mode == GROUND || mv.time_since_grounded <= ft.coyote_time) {
         return false;
     }
-    let normal = if s.mode == GROUND { s.ground_normal } else { UP };
+    let normal = if s.mode == GROUND {
+        s.ground_normal
+    } else {
+        UP
+    };
     if (s.velocity.dot(normal) as f64) > LEAVING_SPEED {
         return false;
     }
@@ -463,7 +469,11 @@ fn wall_contact<S: Space>(m: &mut Mover<'_, S>, s: &State, x: &Ctx, mv: &mut Mov
     let height = s.height;
     let centre = capsule_centre(s.position, height);
     let steepest = deg_to_rad(90.0 - ft.wall_max_angle_from_vertical).cos();
-    let sideways = if mv.wall_running() && count == 6 { 2 } else { 0 };
+    let sideways = if mv.wall_running() && count == 6 {
+        2
+    } else {
+        0
+    };
     let mut best: Option<Hit> = None;
     let mut beside: Option<Hit> = None;
     for (index, &direction) in directions[..count].iter().enumerate() {
@@ -493,7 +503,13 @@ fn wall_contact<S: Space>(m: &mut Mover<'_, S>, s: &State, x: &Ctx, mv: &mut Mov
 /// `DotFpsMotorWalls._wall_probe`: 2 inside solid, 1 the face found, 0 not.
 fn wall_probe<S: Space>(m: &mut Mover<'_, S>, at: Vec3, normal: Vec3, y: f64) -> i64 {
     let origin = Vec3::new(at.x, y as f32, at.z) + normal.scale(WALL_PROBE_STANDOFF);
-    if m.body.overlaps(m.space, origin, WALL_PROBE_HEIGHT, WALL_PROBE_RADIUS, m.masks) {
+    if m.body.overlaps(
+        m.space,
+        origin,
+        WALL_PROBE_HEIGHT,
+        WALL_PROBE_RADIUS,
+        m.masks,
+    ) {
         return 2;
     }
     let motion = (-normal).scale(WALL_PROBE_STANDOFF + 0.2);
@@ -504,7 +520,14 @@ fn wall_probe<S: Space>(m: &mut Mover<'_, S>, at: Vec3, normal: Vec3, y: f64) ->
     0
 }
 
-fn wall_extent<S: Space>(m: &mut Mover<'_, S>, base: Vec3, normal: Vec3, y: f64, sign_y: f64, limit: f64) -> f64 {
+fn wall_extent<S: Space>(
+    m: &mut Mover<'_, S>,
+    base: Vec3,
+    normal: Vec3,
+    y: f64,
+    sign_y: f64,
+    limit: f64,
+) -> f64 {
     let mut reached = 0.0;
     while reached < limit {
         let found = wall_probe(m, base, normal, y + sign_y * (reached + WALL_PROBE_STEP));
@@ -519,7 +542,14 @@ fn wall_extent<S: Space>(m: &mut Mover<'_, S>, base: Vec3, normal: Vec3, y: f64,
     reached
 }
 
-fn wall_extent_along<S: Space>(m: &mut Mover<'_, S>, base: Vec3, normal: Vec3, tangent: Vec3, y: f64, limit: f64) -> f64 {
+fn wall_extent_along<S: Space>(
+    m: &mut Mover<'_, S>,
+    base: Vec3,
+    normal: Vec3,
+    tangent: Vec3,
+    y: f64,
+    limit: f64,
+) -> f64 {
     let mut reached = 0.0;
     while reached < limit {
         let at = base + tangent.scale(reached + WALL_PROBE_STEP);
@@ -595,7 +625,14 @@ fn speed_along_wall(s: &State, wall: &Hit) -> f64 {
 }
 
 /// `DotFpsMotorWalls._turn_along`.
-fn turn_along(s: &mut State, x: &Ctx, mv: &mut Moves, turned: Vec3, view_turn: &mut f64, mc: &mut MoveCounters) {
+fn turn_along(
+    s: &mut State,
+    x: &Ctx,
+    mv: &mut Moves,
+    turned: Vec3,
+    view_turn: &mut f64,
+    mc: &mut MoveCounters,
+) {
     s.velocity.x = turned.x;
     s.velocity.z = turned.z;
     mv.wall_run_time = 0.0;
@@ -603,7 +640,8 @@ fn turn_along(s: &mut State, x: &Ctx, mv: &mut Moves, turned: Vec3, view_turn: &
     if x.ft.wall_run_turn_view {
         let view = forward_for(x.inp.yaw);
         let limit = x.ft.wall_run_turn_view_max_angle;
-        if limit >= 180.0 || (view.dot(turned.normalized()) as f64) > deg_to_rad(limit).cos() + 1e-6 {
+        if limit >= 180.0 || (view.dot(turned.normalized()) as f64) > deg_to_rad(limit).cos() + 1e-6
+        {
             let heading = rad_to_deg((-(turned.x as f64)).atan2(-(turned.z as f64)));
             *view_turn = wrapf(heading - x.inp.yaw, -180.0, 180.0);
         }
@@ -657,10 +695,14 @@ fn try_jump_run<S: Space>(
     if mv.wall_run_cooldown_left > 0.0 || inp.deny_move || inp.deny_jump {
         return false;
     }
-    if mv.time_since_grounded < WALL_ENTRY_MIN_AIR || mv.time_since_jump_pressed > ft.jump_buffer_time {
+    if mv.time_since_grounded < WALL_ENTRY_MIN_AIR
+        || mv.time_since_jump_pressed > ft.jump_buffer_time
+    {
         return false;
     }
-    let Some(turned) = run_heading(m, s, x, wall) else { return false };
+    let Some(turned) = run_heading(m, s, x, wall) else {
+        return false;
+    };
     turn_along(s, x, mv, turned, view_turn, mc);
     mv.time_since_jump_pressed = 1000.0;
     true
@@ -684,7 +726,10 @@ fn try_auto_run<S: Space>(
     if s.mode != AIR || mv.wall_running() || mv.wall_run_spent {
         return;
     }
-    if mv.wall_run_cooldown_left > 0.0 || inp.deny_move || mv.time_since_grounded < WALL_ENTRY_MIN_AIR {
+    if mv.wall_run_cooldown_left > 0.0
+        || inp.deny_move
+        || mv.time_since_grounded < WALL_ENTRY_MIN_AIR
+    {
         return;
     }
     if ft.wall_run_requires_forward && inp.move_y <= 0.0 {
@@ -699,7 +744,13 @@ fn try_auto_run<S: Space>(
 }
 
 /// `DotFpsMotorWalls._try_wall_jump`.
-fn try_wall_jump(s: &mut State, x: &Ctx, mv: &mut Moves, wall: Option<&Hit>, mc: &mut MoveCounters) -> bool {
+fn try_wall_jump(
+    s: &mut State,
+    x: &Ctx,
+    mv: &mut Moves,
+    wall: Option<&Hit>,
+    mc: &mut MoveCounters,
+) -> bool {
     let (ft, inp) = (x.ft, x.inp);
     let Some(wall) = wall else { return false };
     if !ft.wall_jump_enabled {
@@ -729,7 +780,11 @@ fn try_wall_jump(s: &mut State, x: &Ctx, mv: &mut Moves, wall: Option<&Hit>, mc:
     look = look - normal.scale(minf(look.dot(normal) as f64, 0.0));
     let blend = ft.wall_jump_look_blend;
     let mut push = normal.scale(1.0 - blend) + look.scale(blend);
-    push = if (push.length_squared() as f64) > 1e-8 { push.normalized() } else { normal };
+    push = if (push.length_squared() as f64) > 1e-8 {
+        push.normalized()
+    } else {
+        normal
+    };
     let f = flat(s.velocity);
     let kept = f - normal.scale(minf(f.dot(normal) as f64, 0.0));
     let jumped = kept + push.scale(ft.wall_jump_push_speed).scale(inp.effect_jump);
@@ -741,7 +796,11 @@ fn try_wall_jump(s: &mut State, x: &Ctx, mv: &mut Moves, wall: Option<&Hit>, mc:
     mv.time_since_grounded = 1000.0;
     mv.wall_run_time = -1.0;
     mv.wall_run_spent = false;
-    mv.wall_jump_count = if same { (mv.wall_jump_count + 1).min(WALL_JUMP_COUNT_MAX) } else { 1 };
+    mv.wall_jump_count = if same {
+        (mv.wall_jump_count + 1).min(WALL_JUMP_COUNT_MAX)
+    } else {
+        1
+    };
     mv.wall_jumps_in_air = (mv.wall_jumps_in_air + 1).min(WALL_JUMP_COUNT_MAX);
     mv.wall_jump_heading = heading;
     mc.wall_jumps += 1;
@@ -797,7 +856,10 @@ fn update_wall_run<S: Space>(
     if left_this_tick || mv.wall_run_spent || inp.deny_move {
         return;
     }
-    if s.mode != AIR || mv.wall_run_cooldown_left > 0.0 || mv.time_since_grounded < WALL_ENTRY_MIN_AIR {
+    if s.mode != AIR
+        || mv.wall_run_cooldown_left > 0.0
+        || mv.time_since_grounded < WALL_ENTRY_MIN_AIR
+    {
         return;
     }
     if ft.wall_run_requires_forward && inp.move_y <= 0.0 {
@@ -889,11 +951,18 @@ pub fn tick<S: Space>(
         speed_base: inp.speed_base,
         effect_max_speed: inp.effect_max_speed,
         surface_max_speed_scale: inp.surface_max_speed_scale,
-        friction_base: if sliding { ft.slide_friction } else { ft.friction },
+        friction_base: if sliding {
+            ft.slide_friction
+        } else {
+            ft.friction
+        },
         surface_friction: inp.surface_friction,
         effect_friction: inp.effect_friction,
-        ground_accel: (if sliding { ft.slide_accelerate } else { ft.accelerate })
-            * inp.surface_accelerate
+        ground_accel: (if sliding {
+            ft.slide_accelerate
+        } else {
+            ft.accelerate
+        }) * inp.surface_accelerate
             * inp.effect_accelerate,
         air_accel: inp.air_accel,
         push: inp.push,
@@ -904,7 +973,11 @@ pub fn tick<S: Space>(
         wall_run_gravity: inp.wall_run_gravity,
     };
     let post = tick::post(m, s, tt, &p, c);
-    FullOut { pre, post, view_turn }
+    FullOut {
+        pre,
+        post,
+        view_turn,
+    }
 }
 
 #[cfg(test)]
@@ -957,7 +1030,10 @@ mod tests {
     fn a_dash_fires_once_on_the_press_edge() {
         let (mut b, mut sp) = (Body::default(), Empty);
         let mut m = Mover::new(&mut b, &mut sp, Masks::default(), Some(&[]), TUN);
-        let tt = TickTun { max_velocity: 3500.0, ..TickTun::default() };
+        let tt = TickTun {
+            max_velocity: 3500.0,
+            ..TickTun::default()
+        };
         let ft = FullTun {
             dash_enabled: true,
             dash_button: 32,
@@ -966,9 +1042,22 @@ mod tests {
             dash_cooldown: 0.5,
             ..FullTun::default()
         };
-        let mut inp = FullIn { delta: 1.0 / 66.0, buttons: 32, speed_base: 6.0, ..FullIn::default() };
-        let mut s = State { height: 1.8, mode: AIR, ..State::default() };
-        let (mut mv, mut c, mut mc) = (Moves::default(), TickCounters::default(), MoveCounters::default());
+        let mut inp = FullIn {
+            delta: 1.0 / 66.0,
+            buttons: 32,
+            speed_base: 6.0,
+            ..FullIn::default()
+        };
+        let mut s = State {
+            height: 1.8,
+            mode: AIR,
+            ..State::default()
+        };
+        let (mut mv, mut c, mut mc) = (
+            Moves::default(),
+            TickCounters::default(),
+            MoveCounters::default(),
+        );
         tick(&mut m, &mut s, &tt, &ft, &inp, &mut mv, &mut c, &mut mc);
         assert_eq!(mc.dashes, 1);
         assert!(mv.dash_cooldown_left > 0.0);

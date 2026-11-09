@@ -5,8 +5,8 @@
 //! `[fraction, nx, ny, nz, px, py, pz, depth, id_lo, id_hi]`: the collider id in two 32-bit
 //! halves, since an object id need not fit a double.
 
-use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
 use dot_sim_motor::full::{self, FullIn, FullTun, MoveCounters, Moves};
+use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
 use dot_sim_motor::tick::{self, Post, State, TickCounters, TickTun};
 use dot_sim_motor::{Body, Contact, Hit, Masks, Space, Vec3 as V3};
 use godot::classes::{
@@ -14,6 +14,29 @@ use godot::classes::{
     PhysicsShapeQueryParameters3D,
 };
 use godot::prelude::*;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
+
+/// Whether the engine queries and the whole tick are timed (`DotSimFpsBody.set_profile`): off,
+/// nothing but one relaxed load per query.
+static PROFILE: AtomicBool = AtomicBool::new(false);
+/// Per slot a count then nanoseconds: cast, rest, overlap, ray, then the `motor_tick` calls.
+static PROF: [AtomicU64; 2 * PROF_SLOTS] = [const { AtomicU64::new(0) }; 2 * PROF_SLOTS];
+const PROF_SLOTS: usize = 5;
+const PROF_TICK: usize = 4;
+
+#[inline]
+fn prof_start() -> Option<Instant> {
+    PROFILE.load(Ordering::Relaxed).then(Instant::now)
+}
+
+#[inline]
+fn prof_end(slot: usize, at: Option<Instant>) {
+    if let Some(t) = at {
+        PROF[2 * slot].fetch_add(1, Ordering::Relaxed);
+        PROF[2 * slot + 1].fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
+}
 
 /// The engine side of [`Space`]: one capsule and one set of query parameters, written only when a
 /// value changes (a property write on an engine object is a call).
@@ -116,7 +139,9 @@ impl Space for GdSpace {
     fn cast(&mut self, from: V3, motion: V3) -> Option<(f32, f32)> {
         self.place(from, Some(motion));
         let space = self.space.as_mut()?;
+        let at = prof_start();
         let r = space.cast_motion(&self.params);
+        prof_end(0, at);
         let s = r.as_slice();
         if s.len() < 2 {
             return None;
@@ -127,7 +152,10 @@ impl Space for GdSpace {
     fn rest(&mut self, at: V3) -> Option<Contact> {
         self.place(at, None);
         let space = self.space.as_ref()?;
-        contact(&space.get_rest_info(&self.params), "normal", "point")
+        let at = prof_start();
+        let r = contact(&space.get_rest_info(&self.params), "normal", "point");
+        prof_end(1, at);
+        r
     }
 
     fn overlap(&mut self, at: V3) -> bool {
@@ -135,11 +163,14 @@ impl Space for GdSpace {
         let Some(space) = self.space.as_mut() else {
             return false;
         };
-        !space
+        let at = prof_start();
+        let r = !space
             .intersect_shape_ex(&self.params)
             .max_results(1)
             .done()
-            .is_empty()
+            .is_empty();
+        prof_end(2, at);
+        r
     }
 
     fn ray(&mut self, from: V3, to: V3, mask: i64) -> Option<Contact> {
@@ -150,7 +181,10 @@ impl Space for GdSpace {
             self.ray_mask = mask;
         }
         let space = self.space.as_mut()?;
-        contact(&space.intersect_ray(&self.ray), "normal", "position")
+        let at = prof_start();
+        let r = contact(&space.intersect_ray(&self.ray), "normal", "position");
+        prof_end(3, at);
+        r
     }
 }
 
@@ -761,6 +795,7 @@ impl DotSimFpsBody {
         collision_mask: i64,
         pass_out_mask: i64,
     ) -> PackedFloat64Array {
+        let at = prof_start();
         let (sp, tp) = (state.as_slice(), tun.as_slice());
         if sp.len() < STATE_LEN + FULL_IN_LEN || tp.len() < TICK_TUN_LEN + FULL_TUN_LEN {
             return PackedFloat64Array::new();
@@ -816,7 +851,34 @@ impl DotSimFpsBody {
                 mc.wall_jumps as f64,
             ][..],
         ));
+        prof_end(PROF_TICK, at);
         o
+    }
+
+    /// Times every engine query and every `motor_tick` from now on (all bodies), for a profile run.
+    #[func]
+    fn set_profile(on: bool) {
+        PROFILE.store(on, Ordering::Relaxed);
+    }
+
+    /// Per slot the count then the microseconds since the last reset: cast, rest, overlap, ray,
+    /// then whole `motor_tick` calls. The tick less the four queries is the motor's own work and
+    /// the engine call boundary.
+    #[func]
+    fn profile_counters() -> PackedInt64Array {
+        (0..PROF.len())
+            .map(|i| {
+                let v = PROF[i].load(Ordering::Relaxed) as i64;
+                if i % 2 == 1 { v / 1000 } else { v }
+            })
+            .collect()
+    }
+
+    #[func]
+    fn reset_profile() {
+        for p in &PROF {
+            p.store(0, Ordering::Relaxed);
+        }
     }
 
     /// Queries counted as the script counts them; the script resets it each tick.
