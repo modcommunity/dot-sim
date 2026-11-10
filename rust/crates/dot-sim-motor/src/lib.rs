@@ -104,6 +104,19 @@ pub struct Body {
     rm_radius: f64,
     rm_mask: i64,
     rm_found: Option<(Vec3, Vec3, i64, f64)>,
+    /// Nothing the body queries moves between ticks (`DotFpsMotor.static_world`): the first rest
+    /// query of a tick (the depenetrate) is remembered across ticks, so a body that did not move
+    /// does not ask the engine the same question again.
+    static_world: bool,
+    sm_valid: bool,
+    sm_pinned: bool,
+    sm_at: Vec3,
+    sm_height: f64,
+    sm_radius: f64,
+    sm_mask: i64,
+    sm_found: Option<(Vec3, Vec3, i64, f64)>,
+    /// Rest queries answered from the cross-tick memo.
+    pub static_memo_hits: i64,
     /// Queries counted the way the script counts them.
     pub query_count: i64,
     /// Rest contacts turned round (see [`Body::rest_contact`]).
@@ -126,6 +139,15 @@ impl Default for Body {
             rm_radius: 0.0,
             rm_mask: 0,
             rm_found: None,
+            static_world: false,
+            sm_valid: false,
+            sm_pinned: false,
+            sm_at: Vec3::default(),
+            sm_height: 0.0,
+            sm_radius: 0.0,
+            sm_mask: 0,
+            sm_found: None,
+            static_memo_hits: 0,
             query_count: 0,
             flipped_normals: 0,
             rest_memo_hits: 0,
@@ -138,6 +160,14 @@ impl Body {
     pub fn begin_tick(&mut self) {
         self.in_tick = true;
         self.rm_valid = false;
+        self.sm_pinned = false;
+    }
+
+    /// Declares that nothing the body queries moves between ticks; forgets the cross-tick memo
+    /// either way. Off (the default) gives the script's answers to the query.
+    pub fn set_static_world(&mut self, on: bool) {
+        self.static_world = on;
+        self.sm_valid = false;
     }
 
     /// Closes a motor tick.
@@ -149,6 +179,7 @@ impl Body {
     /// Forgets the memo: the exclusion list or the space changed.
     pub fn invalidate(&mut self) {
         self.rm_valid = false;
+        self.sm_valid = false;
     }
 
     fn set_mask<S: Space>(&mut self, s: &mut S, mask: i64) {
@@ -430,7 +461,36 @@ impl Body {
                 depth,
             });
         }
+        let keep = self.static_world && self.in_tick && self.perf_caches;
+        if keep
+            && self.sm_valid
+            && at == self.sm_at
+            && height == self.sm_height
+            && radius == self.sm_radius
+            && self.cfg_mask == self.sm_mask
+        {
+            self.static_memo_hits += 1;
+            self.sm_pinned = true;
+            let (normal, point, collider_id, depth) = self.sm_found?;
+            return Some(Hit {
+                hit: true,
+                fraction: 0.0,
+                normal,
+                point,
+                collider_id,
+                depth,
+            });
+        }
         let found = self.raw_rest_query(s, at, height, radius);
+        if keep && !self.sm_pinned {
+            self.sm_pinned = true;
+            self.sm_valid = true;
+            self.sm_at = at;
+            self.sm_height = height;
+            self.sm_radius = radius;
+            self.sm_mask = self.cfg_mask;
+            self.sm_found = found.map(|h| (h.normal, h.point, h.collider_id, h.depth));
+        }
         if memo {
             self.rm_valid = true;
             self.rm_at = at;
@@ -605,6 +665,46 @@ mod tests {
         assert_eq!(b.query_count, 1);
         b.end_tick();
         b.rest_contact(&mut s, at, 1.8, 0.4, M);
+        assert_eq!(b.query_count, 2);
+    }
+
+    #[test]
+    fn a_static_world_keeps_the_first_rest_answer_across_ticks() {
+        let at = Vec3::new(0.0, 0.85, 0.0);
+        let mut moved = at;
+        moved.x = 1.0;
+        for on in [false, true] {
+            let mut s = Floor::default();
+            let mut b = Body::default();
+            b.set_static_world(on);
+            let mut answers = Vec::new();
+            for _ in 0..3 {
+                b.begin_tick();
+                answers.push(b.rest_contact(&mut s, at, 1.8, 0.4, M));
+                // Later queries of the tick do not displace the remembered first one.
+                b.rest_contact(&mut s, moved, 1.8, 0.4, M);
+                b.end_tick();
+            }
+            assert_eq!(answers[0], answers[1]);
+            assert_eq!(answers[1], answers[2]);
+            assert_eq!(b.static_memo_hits, if on { 2 } else { 0 });
+            assert_eq!(b.query_count, if on { 4 } else { 6 });
+        }
+    }
+
+    #[test]
+    fn invalidate_drops_the_static_memo() {
+        let mut s = Floor::default();
+        let mut b = Body::default();
+        b.set_static_world(true);
+        let at = Vec3::new(0.0, 0.85, 0.0);
+        b.begin_tick();
+        b.rest_contact(&mut s, at, 1.8, 0.4, M);
+        b.end_tick();
+        b.invalidate();
+        b.begin_tick();
+        b.rest_contact(&mut s, at, 1.8, 0.4, M);
+        assert_eq!(b.static_memo_hits, 0);
         assert_eq!(b.query_count, 2);
     }
 

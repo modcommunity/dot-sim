@@ -504,6 +504,13 @@ impl DotSimFpsBody {
         self.body.perf_caches = on;
     }
 
+    /// Nothing this body queries moves between ticks (`DotFpsMotor.static_world`): a rest query
+    /// at the spot the last tick began with is answered from memory. Off by default.
+    #[func]
+    fn set_static_world(&mut self, on: bool) {
+        self.body.set_static_world(on);
+    }
+
     #[func]
     fn begin_tick(&mut self) {
         self.body.begin_tick();
@@ -882,6 +889,11 @@ impl DotSimFpsBody {
     #[func]
     fn flipped_normals(&self) -> i64 {
         self.body.flipped_normals
+    }
+
+    #[func]
+    fn static_memo_hits(&self) -> i64 {
+        self.body.static_memo_hits
     }
 
     #[func]
