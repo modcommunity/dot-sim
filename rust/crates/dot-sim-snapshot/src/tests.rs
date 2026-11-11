@@ -198,7 +198,7 @@ fn wide_floats_are_the_scripts() {
 }
 
 /// Golden bytes from the script codec itself (`examples/snapshot_selftest.gd`, `_golden`): a
-/// player state as game-arena sends it, default config, pad 3. A change here is a wire change.
+/// player state as game-fatal-contact sends it, default config, pad 3. A change here is a wire change.
 #[test]
 fn golden_player_state() {
     let decls = vec![

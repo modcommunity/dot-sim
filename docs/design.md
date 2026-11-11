@@ -38,22 +38,22 @@ The native code must give the bit-identical answer, not a close one, or a bot's 
 
 Measured first (cp-orange-x3, 31 bots, headless on the build machine, per frame at 50 fps): the bot brain is 1.6 ms of a 5.7 ms game tick; inside one think call, perception is 27 µs of which the sight scan (`_candidates`) is 14 µs, hearing 14 µs, the fight 18 µs. The brain is no longer the dominant cost, so the native ceiling for bots is about 1.3 ms per tick, and the first kernel is the one pure, allocation-heavy loop: the sight scan.
 
-- The game bumps `DotBotWorld.contacts_version` once per tick (game-arena sets it to the tick number).
+- The game bumps `DotBotWorld.contacts_version` once per tick (game-fatal-contact sets it to the tick number).
 - The first bot to think in a tick packs the bodies once into `DotSimBotSenses` (ids, aim points, teams, alive; struct of arrays).
 - Each bot's scan is one call returning candidate indices; the scores and the "visible target died" flag are read after. The brain maps indices back to its `DotBotContact` list, so everything after the scan is unchanged script.
 - `DotBotWorld.native_enabled` (static) switches it off for the suite and for comparisons; a world that never bumps the version always uses the script.
 - dot-bot names the class only as a `StringName` for `ClassDB`, so dot-bot does not depend on dot-sim.
-- Only the main thread scans natively. The packed senses keep the last scan's answer, so a brain thinking on a worker thread (game-arena's `bot_threads`) scans in script.
-- Games expose the switch as a setting (game-arena: cvar `bot_native`, on by default); without the library it is script either way.
+- Only the main thread scans natively. The packed senses keep the last scan's answer, so a brain thinking on a worker thread (game-fatal-contact's `bot_threads`) scans in script.
+- Games expose the switch as a setting (game-fatal-contact: cvar `bot_native`, on by default); without the library it is script either way.
 
 ## Measured (build machine, headless, script fast scan against native)
 
 | Run | Script | Native |
 | --- | --- | --- |
 | Scan over 32 bodies (suite) | 17.3 µs | 2.8 µs |
-| game-arena server, 32 bots, 66 Hz: script ms/tick (bot brain) | 9.76 (2.20) | 9.30 (1.90) |
-| game-arena server, 128 bots, 66 Hz: script ms/tick (bot brain) | 43.7 (13.2) | 39.4 (8.4) |
-| game-arena offline, cp-orange-x3, 31 bots: game tick ms, two rounds | 6.02, 6.67 | 5.48, 5.63 |
+| game-fatal-contact server, 32 bots, 66 Hz: script ms/tick (bot brain) | 9.76 (2.20) | 9.30 (1.90) |
+| game-fatal-contact server, 128 bots, 66 Hz: script ms/tick (bot brain) | 43.7 (13.2) | 39.4 (8.4) |
+| game-fatal-contact offline, cp-orange-x3, 31 bots: game tick ms, two rounds | 6.02, 6.67 | 5.48, 5.63 |
 
 The saving grows with the bot count because the scan is quadratic in bodies. At 128 bots the brain is no longer the main cost of the tick, so the next native candidates are outside the sight scan.
 

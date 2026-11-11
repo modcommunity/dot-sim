@@ -2,7 +2,7 @@
 //! gathers the other players' standing hulls natively (`DotSimFpsBody` hulls mode 3) instead of
 //! asking the game script once per player and tick.
 //!
-//! The answer is the script gather's to the bit (game-arena `_add_hulls_local`): the roster in
+//! The answer is the script gather's to the bit (game-fatal-contact `_add_hulls_local`): the roster in
 //! order, skipping the mover, a slot without a controller, one farther than the reach (the
 //! squared distance in `f32`, as `Vector3.distance_squared_to`), a dead one and a pair the
 //! pair callable lets pass; each box `AABB(feet - Vector3(r, 0, r), Vector3(r * 2, h, r * 2))`.
