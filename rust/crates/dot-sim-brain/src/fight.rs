@@ -36,6 +36,8 @@ pub struct FightIn {
     pub roll_crouch: bool,
     pub roll_cover: bool,
     pub hesitate_until: f64,
+    /// A standoff that has not moved for a while (the brain keeps the spot and the clock): walk in.
+    pub push: bool,
 }
 
 /// The brain's strafe state, carried between steps.
@@ -125,6 +127,11 @@ pub fn fight(
     }
 
     let retreat = i.roll_cover && i.health < RETREAT_HEALTH;
+    // The brain only pushes when it does not retreat; `push` is false whenever `retreat` is true.
+    let push = i.push && !retreat;
+    if push {
+        forward = 1.0;
+    }
     if retreat {
         forward = -1.0;
     }
@@ -165,7 +172,7 @@ pub fn fight(
     }
 
     let long_burst = trigger && dist > p.aim.burst_range * 0.6;
-    if long_burst && i.roll_stop && !retreat {
+    if long_burst && i.roll_stop && !retreat && !push {
         forward = 0.0;
         side = 0.0;
     }
@@ -250,6 +257,7 @@ mod tests {
                 roll_crouch: false,
                 roll_cover: false,
                 hesitate_until: f64::NEG_INFINITY,
+                push: false,
             };
             let o = fight(
                 &mut aim,
@@ -266,6 +274,55 @@ mod tests {
         }
         assert!(moved_forward);
         assert!(!first.at.is_nan(), "never fired");
+    }
+
+    #[test]
+    fn a_stale_standoff_walks_in() {
+        // At the preferred range the bot holds its distance; pushing, it walks in.
+        let p = FightProfile {
+            strafe: 0.0,
+            jump: 0.0,
+            ..profile()
+        };
+        for (push, want_in) in [(false, false), (true, true)] {
+            let mut aim = Aim::new(mix(3));
+            let mut view = View::default();
+            let mut first = FirstShot {
+                at: f64::NAN,
+                error: f64::NAN,
+            };
+            let mut strafe = Strafe::default();
+            let mut rng = Stream::new(mix(4), 0);
+            let i = FightIn {
+                eye: Vec3::new(0.0, 1.6, 0.0),
+                point: Vec3::new(0.0, 1.4, -10.0),
+                velocity: Vec3::new(0.0, 0.0, 0.0),
+                me_pos: Vec3::new(0.0, 0.0, 0.0),
+                c_pos: Vec3::new(0.0, 0.0, -10.0),
+                now: 1.0,
+                dt: 1.0 / 30.0,
+                projectile_speed: 0.0,
+                health: 1.0,
+                react_at: 0.25,
+                engaged_at: 0.0,
+                roll_stop: true,
+                roll_crouch: false,
+                roll_cover: false,
+                hesitate_until: f64::NEG_INFINITY,
+                push,
+            };
+            let o = fight(
+                &mut aim,
+                &mut view,
+                &mut first,
+                &mut strafe,
+                &mut rng,
+                &i,
+                &p,
+            );
+            // Facing the target (-Z from yaw 0), walking in is +y in the legs' frame.
+            assert_eq!(o.move_.y > 0.5, want_in, "push {push}: move {:?}", o.move_);
+        }
     }
 
     #[test]

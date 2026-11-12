@@ -44,7 +44,9 @@ mod io {
     /// turn_smooth, turn_rate, max_range, burst_range, burst, burst_pause, range, strafe,
     /// strafe_jitter, strafe_time, jump.
     pub const PROFILE: usize = 18;
-    pub const LEN: usize = PROFILE + 17;
+    /// 1 when the brain's stale-standoff clock says walk in (DotBotBrain.STALE_FIGHT).
+    pub const PUSH: usize = PROFILE + 17;
+    pub const LEN: usize = PUSH + 1;
 }
 
 fn v3(v: Vector3) -> V3 {
@@ -310,7 +312,7 @@ impl DotSimBotMind {
             );
             return PackedFloat64Array::new();
         }
-        let pr = &a[io::PROFILE..io::LEN];
+        let pr = &a[io::PROFILE..io::PUSH];
         let p = FightProfile {
             aim: aim_profile(&pr[..12]),
             range: pr[12],
@@ -335,6 +337,7 @@ impl DotSimBotMind {
             roll_crouch: a[io::ROLL_CROUCH] != 0.0,
             roll_cover: a[io::ROLL_COVER] != 0.0,
             hesitate_until: a[io::HESITATE_UNTIL],
+            push: a[io::PUSH] != 0.0,
         };
         let mut view = View {
             yaw: a[io::YAW],
