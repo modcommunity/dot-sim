@@ -7,6 +7,7 @@
 
 use crate::hulls::DotSimHullWorld;
 use dot_sim_motor::full::{self, FullIn, FullTun, MoveCounters, Moves};
+use dot_sim_motor::memo::MemoSpace;
 use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
 use dot_sim_motor::tick::{self, Post, State, TickCounters, TickTun};
 use dot_sim_motor::{Body, Contact, Hit, Masks, Space, Vec3 as V3};
@@ -194,7 +195,8 @@ impl Space for GdSpace {
 #[class(base = RefCounted)]
 pub struct DotSimFpsBody {
     body: Body,
-    space: GdSpace,
+    /// The engine queries; a whole native tick ([`DotSimFpsBody::tick_into`]) repeats none.
+    space: MemoSpace<GdSpace>,
     boxes: Vec<SlideBox>,
     /// The players' world hulls mode 3 gathers from, and this body's slot in it.
     world: Option<(Gd<DotSimHullWorld>, i64)>,
@@ -207,7 +209,7 @@ impl IRefCounted for DotSimFpsBody {
     fn init(_base: Base<RefCounted>) -> Self {
         Self {
             body: Body::default(),
-            space: GdSpace::new(),
+            space: MemoSpace::new(GdSpace::new()),
             boxes: Vec::new(),
             world: None,
             math_checks: Os::singleton().is_debug_build(),
@@ -486,15 +488,17 @@ impl DotSimFpsBody {
     /// The physics space queried; a new one forgets the rest memo.
     #[func]
     fn set_space(&mut self, space: Option<Gd<PhysicsDirectSpaceState3D>>) {
-        self.space.space = space;
+        self.space.inner.space = space;
+        self.space.forget();
         self.body.invalidate();
     }
 
     /// Bodies left out of every query (the player's own collider); forgets the rest memo.
     #[func]
     fn set_exclude(&mut self, exclude: Array<Rid>) {
-        self.space.params.set_exclude(&exclude);
-        self.space.ray.set_exclude(&exclude);
+        self.space.inner.params.set_exclude(&exclude);
+        self.space.inner.ray.set_exclude(&exclude);
+        self.space.forget();
         self.body.invalidate();
     }
 
@@ -900,6 +904,12 @@ impl DotSimFpsBody {
     fn rest_memo_hits(&self) -> i64 {
         self.body.rest_memo_hits
     }
+
+    /// Engine rests and casts a native tick answered from its own earlier identical query.
+    #[func]
+    fn query_memo_hits(&self) -> i64 {
+        (self.space.hits[0] + self.space.hits[1]) as i64
+    }
 }
 
 /// Values in a whole tick's input row: the state block then `full_in`'s.
@@ -944,8 +954,14 @@ impl DotSimFpsBody {
         let (inp, mut mv) = full_in(sp);
         let mut c = TickCounters::default();
         let mut mc = MoveCounters::default();
+        // No script runs inside this call, so nothing the space sees can move: an identical
+        // engine query within it has the same answer. Behind `perf_caches` like the rest memo.
+        if self.body.perf_caches {
+            self.space.open();
+        }
         let mut mover = Mover::new(&mut self.body, &mut self.space, m, boxes, t);
         let out = full::tick(&mut mover, &mut s, &tt, &ft, &inp, &mut mv, &mut c, &mut mc);
+        mover.space.close();
         let flags = out.pre.start_settled as i64
             | (out.pre.reused as i64) << 1
             | (s.surface_cleared as i64) << 2

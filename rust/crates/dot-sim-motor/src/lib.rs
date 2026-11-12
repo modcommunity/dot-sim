@@ -10,6 +10,7 @@ pub use dot_sim_math::Vec3;
 use dot_sim_math::{clampf, maxf, minf};
 
 pub mod full;
+pub mod memo;
 pub mod slide;
 pub mod tick;
 
