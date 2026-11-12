@@ -629,6 +629,7 @@ impl<'a, S: Space> Mover<'a, S> {
     ) -> MoveResult {
         let skin = self.t.skin_width;
         let centre = capsule_centre(from, height);
+        let _site = crate::site::stage(crate::site::STEP);
         let seat = self.sweep(centre, DOWN.scale(skin * 2.0 + 0.02), height);
         let mut hover = 0.0;
         if seat.hit {
@@ -688,6 +689,7 @@ impl<'a, S: Space> Mover<'a, S> {
         if (outward.length_squared() as f64) < 1e-8 {
             return Vec3::default();
         }
+        let _site = crate::site::stage(crate::site::EDGE);
         let probe_radius = minf(0.05, self.t.radius * 0.25);
         let probe_height = probe_radius * 2.0;
         let at = landing.point + outward.normalized().scale(probe_radius + 0.01);

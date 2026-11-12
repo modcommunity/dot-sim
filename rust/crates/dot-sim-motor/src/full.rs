@@ -922,7 +922,10 @@ pub fn tick<S: Space>(
     let mut view_turn = 0.0;
 
     let jumped = try_jump(s, &x, mv);
+    let site_wall = crate::site::stage(crate::site::WALL_CONTACT);
     let wall = wall_contact(m, s, &x, mv);
+    drop(site_wall);
+    let site_wall = crate::site::stage(crate::site::WALL_MOVE);
     let wall = wall.as_ref();
     let mut wall_jumped = false;
     if !jumped && !try_jump_run(m, s, &x, mv, wall, &mut view_turn, mc) {
@@ -936,6 +939,7 @@ pub fn tick<S: Space>(
 
     update_slide(s, &x, mv, jumped || launched, mc);
     update_wall_run(m, s, &x, mv, wall, jumped || wall_jumped || launched, mc);
+    drop(site_wall);
 
     let sliding = mv.sliding();
     let p = Post {
