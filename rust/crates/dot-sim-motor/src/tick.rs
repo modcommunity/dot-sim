@@ -158,6 +158,7 @@ fn add_y(v: Vec3, by: f64) -> Vec3 {
 fn depenetrate<S: Space>(m: &mut Mover<'_, S>, s: &mut State, c: &mut TickCounters) -> bool {
     let centre = capsule_centre(s.position, s.height);
     let radius = m.t.radius;
+    let _site = crate::site::stage(crate::site::DEPENETRATE);
     let resting = m.rest_contact(centre, s.height, radius);
     if !resting.hit || resting.depth <= 0.0 {
         return false;
@@ -172,6 +173,7 @@ fn depenetrate<S: Space>(m: &mut Mover<'_, S>, s: &mut State, c: &mut TickCounte
 /// `DotFpsMotor._quadrant_floor_probe`.
 fn quadrant_floor<S: Space>(m: &mut Mover<'_, S>, centre: Vec3, probe: Vec3, height: f64) -> Hit {
     let half = m.t.radius * 0.5;
+    let _site = crate::site::stage(crate::site::QUADRANT);
     for (qx, qz) in QUADRANTS {
         let offset = Vec3::new(qx, 0.0, qz).normalized().scale(half);
         let hit = m.sweep_r(centre + offset, probe, height, half);
@@ -190,6 +192,7 @@ fn standable_normal<S: Space>(m: &mut Mover<'_, S>, s: &State, hit: &Hit) -> Vec
     if m.is_floor(hit.normal) {
         return hit.normal;
     }
+    let _site = crate::site::stage(crate::site::EDGE);
     let toward = Vec3::new(
         ((hit.point.x as f64) - (s.position.x as f64)) as f32,
         0.0,
@@ -214,6 +217,7 @@ fn keep_skin<S: Space>(m: &Mover<'_, S>, s: &mut State, hit: &Hit, probe: Vec3) 
 fn lift_clear<S: Space>(m: &mut Mover<'_, S>, s: &mut State) -> bool {
     let mut lift = maxf(m.t.skin_width * 2.0, 0.0005);
     let limit = maxf(m.t.step_height, lift);
+    let _site = crate::site::stage(crate::site::LIFT);
     let mut moved = 0.0f64;
     let radius = m.t.radius;
     while moved < limit {
@@ -328,6 +332,7 @@ pub fn pre<S: Space>(
     c: &mut TickCounters,
 ) -> PreOut {
     depenetrate(m, s, c);
+    let _site = crate::site::stage(crate::site::GROUND_START);
     if rest_ok && s.mode == GROUND && s.position == rest_position {
         return PreOut {
             start_settled: true,
@@ -454,6 +459,7 @@ fn snap_to_ground<S: Space>(m: &mut Mover<'_, S>, s: &mut State, tt: &TickTun, s
     let height = s.height;
     let centre = capsule_centre(s.position, height);
     let probe = DOWN.scale(tt.ground_snap_distance);
+    let _site = crate::site::stage(crate::site::SNAP);
     let mut hit = m.sweep(centre, probe, height);
     if hit.hit && !m.is_floor(hit.normal) {
         hit = quadrant_floor(m, centre, probe, height);
@@ -497,6 +503,7 @@ fn move_tick<S: Space>(
     let stood_on = s.ground_normal;
     let walking = was_grounded && !p.jumped;
 
+    let site_slide = crate::site::stage(crate::site::SLIDE);
     let plain = m.move_walking(s.position, s.velocity, motion, height, walking);
     s.position = plain.position;
     s.velocity = plain.velocity;
@@ -530,7 +537,9 @@ fn move_tick<S: Space>(
         c.duplicate_plane += 1;
     }
 
+    drop(site_slide);
     if walking && tt.ground_snap {
+        let _site = crate::site::stage(crate::site::GROUND_MOVE);
         if categorise(m, s, tt, c) {
             return true;
         }
@@ -600,6 +609,7 @@ pub fn post<S: Space>(
             nonfinite,
         };
     }
+    let _site = crate::site::stage(crate::site::GROUND_END);
     categorise(m, s, tt, c);
     PostOut {
         stamp: false,

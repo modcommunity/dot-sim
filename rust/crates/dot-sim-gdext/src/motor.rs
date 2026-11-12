@@ -10,7 +10,7 @@ use dot_sim_motor::full::{self, FullIn, FullTun, MoveCounters, Moves};
 use dot_sim_motor::memo::MemoSpace;
 use dot_sim_motor::slide::{Aabb as SlideBox, Mover, Tun};
 use dot_sim_motor::tick::{self, Post, State, TickCounters, TickTun};
-use dot_sim_motor::{Body, Contact, Hit, Masks, Space, Vec3 as V3};
+use dot_sim_motor::{Body, Contact, Hit, Masks, Space, Vec3 as V3, site};
 use godot::classes::{
     CapsuleShape3D, Os, PhysicsDirectSpaceState3D, PhysicsRayQueryParameters3D,
     PhysicsShapeQueryParameters3D,
@@ -32,12 +32,61 @@ fn prof_start() -> Option<Instant> {
     PROFILE.load(Ordering::Relaxed).then(Instant::now)
 }
 
+const N_STAGES: usize = site::STAGES.len();
+const N_STEPS: usize = site::STEPS.len();
+/// The four queries again, split by where the motor asked them ([`site::current`]): per
+/// (stage, step, query) a count then nanoseconds.
+static SITES: [AtomicU64; 2 * N_STAGES * N_STEPS * 4] =
+    [const { AtomicU64::new(0) }; 2 * N_STAGES * N_STEPS * 4];
+const QUERY_NAMES: [&str; 4] = ["cast", "rest", "overlap", "ray"];
+
 #[inline]
 fn prof_end(slot: usize, at: Option<Instant>) {
     if let Some(t) = at {
+        let ns = t.elapsed().as_nanos() as u64;
         PROF[2 * slot].fetch_add(1, Ordering::Relaxed);
-        PROF[2 * slot + 1].fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        PROF[2 * slot + 1].fetch_add(ns, Ordering::Relaxed);
+        if slot < 4 {
+            let (stage, step) = site::current();
+            let i = ((stage as usize).min(N_STAGES - 1) * N_STEPS
+                + (step as usize).min(N_STEPS - 1))
+                * 4
+                + slot;
+            SITES[2 * i].fetch_add(1, Ordering::Relaxed);
+            SITES[2 * i + 1].fetch_add(ns, Ordering::Relaxed);
+        }
     }
+}
+
+/// The per-site table as one line: `stage/step/query count us`, busiest first.
+fn sites_line() -> String {
+    let mut rows: Vec<(u64, u64, usize)> = (0..SITES.len() / 2)
+        .map(|i| {
+            (
+                SITES[2 * i + 1].load(Ordering::Relaxed),
+                SITES[2 * i].load(Ordering::Relaxed),
+                i,
+            )
+        })
+        .filter(|r| r.1 > 0)
+        .collect();
+    rows.sort_unstable_by_key(|r| std::cmp::Reverse(r.0));
+    let ticks = PROF[2 * PROF_TICK].load(Ordering::Relaxed);
+    let mut out = format!("DOT_SIM_SITES ticks={ticks}");
+    for (ns, n, i) in rows {
+        let q = i % 4;
+        let step = (i / 4) % N_STEPS;
+        let stage = i / 4 / N_STEPS;
+        out.push_str(&format!(
+            " | {}/{}/{} {} {}us",
+            site::STAGES[stage],
+            site::STEPS[step],
+            QUERY_NAMES[q],
+            n,
+            ns / 1000
+        ));
+    }
+    out
 }
 
 /// The engine side of [`Space`]: one capsule and one set of query parameters, written only when a
@@ -856,7 +905,16 @@ impl DotSimFpsBody {
     /// Times every engine query and every `motor_tick` from now on (all bodies), for a profile run.
     #[func]
     fn set_profile(on: bool) {
-        PROFILE.store(on, Ordering::Relaxed);
+        let was = PROFILE.swap(on, Ordering::Relaxed);
+        if was && !on {
+            godot_print!("{}", sites_line());
+        }
+    }
+
+    /// The per-call-site split of the profiled queries, as `set_profile(false)` prints it.
+    #[func]
+    fn profile_sites() -> GString {
+        GString::from(sites_line().as_str())
     }
 
     /// Per slot the count then the microseconds since the last reset: cast, rest, overlap, ray,
@@ -874,7 +932,7 @@ impl DotSimFpsBody {
 
     #[func]
     fn reset_profile() {
-        for p in &PROF {
+        for p in PROF.iter().chain(SITES.iter()) {
             p.store(0, Ordering::Relaxed);
         }
     }

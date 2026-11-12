@@ -11,6 +11,7 @@ use dot_sim_math::{clampf, maxf, minf};
 
 pub mod full;
 pub mod memo;
+pub mod site;
 pub mod slide;
 pub mod tick;
 
@@ -224,6 +225,7 @@ impl Body {
         self.set_mask(s, m.collision);
         if m.pass_out != 0 {
             self.set_mask(s, m.collision & m.pass_out);
+            site::step(site::PASS_OUT_OVERLAP);
             if s.overlap(from) {
                 self.set_mask(s, m.collision & !m.pass_out);
             } else {
@@ -231,6 +233,7 @@ impl Body {
             }
         }
 
+        site::step(site::CAST);
         let Some((safe, unsafe_)) = s.cast(from, motion) else {
             return result;
         };
@@ -256,8 +259,10 @@ impl Body {
         result.hit = true;
         result.fraction = clampf(safe, 0.0, 1.0);
 
+        site::step(site::CONTACT_REST);
         let mut contact = s.rest(from + motion.scale(unsafe_));
         if contact.is_none() {
+            site::step(site::RETRY_REST);
             let along = motion.normalized();
             for depth in CONTACT_RETRY_DEPTHS {
                 contact = s.rest(from + motion.scale(unsafe_) + along.scale(depth));
@@ -335,6 +340,7 @@ impl Body {
         }
         let foot = from - UP.scale(height * 0.5);
         self.query_count += 1;
+        site::step(site::RAY);
         let Some(c) = s.ray(foot, foot + motion, m.collision & !m.pass_out) else {
             return result;
         };
@@ -359,6 +365,7 @@ impl Body {
         m: Masks,
     ) -> Option<Hit> {
         let at = from + motion;
+        site::step(site::END_REST);
         let mut end = self.raw_rest_or_none(s, at, height, radius, m)?;
         self.turn_round_flipped(s, &mut end, at, height, radius, m);
         let approach = -(motion.dot(end.normal) as f64);
@@ -384,6 +391,7 @@ impl Body {
         radius: f64,
         m: Masks,
     ) -> Option<Hit> {
+        site::step(site::START_REST);
         let mut resting = self.raw_rest_or_none(s, from, height, radius, m)?;
         self.turn_round_flipped(s, &mut resting, from, height, radius, m);
         if (motion.dot(resting.normal) as f64) >= 0.0 {
@@ -402,6 +410,7 @@ impl Body {
         radius: f64,
         m: Masks,
     ) -> Hit {
+        site::step(site::REST_CONTACT);
         let Some(mut result) = self.raw_rest_or_none(s, at, height, radius, m) else {
             return Hit::MISS;
         };
@@ -424,6 +433,7 @@ impl Body {
         }
         let reversed_depth = maxf(support * 2.0 - result.depth, 0.0);
         let probe = at - result.normal.scale(reversed_depth + FLIP_CHECK_CLEARANCE);
+        site::step(site::FLIP_REST);
         if let Some(after) = self.raw_rest_or_none(s, probe, height, radius, m)
             && after.depth > FLIP_CHECK_CLEARANCE
         {
@@ -538,6 +548,7 @@ impl Body {
     ) -> bool {
         self.configure(s, height, radius, m);
         self.query_count += 1;
+        site::step(site::OVERLAPS);
         s.overlap(at)
     }
 }
