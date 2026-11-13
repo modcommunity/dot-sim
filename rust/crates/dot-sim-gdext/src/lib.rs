@@ -8,6 +8,8 @@ mod batch;
 mod bots;
 #[cfg(feature = "brain")]
 mod brain;
+#[cfg(feature = "figure")]
+mod figure;
 #[cfg(feature = "motor")]
 mod hulls;
 #[cfg(feature = "motor")]

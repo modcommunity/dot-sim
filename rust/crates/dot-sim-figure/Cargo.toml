@@ -1,0 +1,10 @@
+[package]
+name = "dot-sim-figure"
+description = "A humanoid figure's pose layers after the clip (aim bend, gun arm, support arm), as dot-player-char's script computes them; the skeleton behind a trait."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dot-sim-math = { path = "../dot-sim-math" }

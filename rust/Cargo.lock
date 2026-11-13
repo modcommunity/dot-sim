@@ -26,11 +26,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dot-sim-figure"
+version = "0.1.0"
+dependencies = [
+ "dot-sim-math",
+]
+
+[[package]]
 name = "dot-sim-gdext"
 version = "0.1.0"
 dependencies = [
  "dot-sim-bots",
  "dot-sim-brain",
+ "dot-sim-figure",
  "dot-sim-motor",
  "dot-sim-snapshot",
  "godot",
