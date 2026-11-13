@@ -179,29 +179,42 @@ impl<S: Space> Space for MemoSpace<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::full::{self, FullIn, FullTun, MoveCounters, Moves};
     use crate::slide::{Mover, Tun};
-    use crate::tick::{GROUND, Post, State, TickCounters, TickTun, post, pre};
+    use crate::tick::{AIR, GROUND, Post, State, TickCounters, TickTun, post, pre};
     use crate::{Body, Masks, UP};
 
-    /// A floor at y = 0 inside walls at x and z = +-1, answered analytically; counts what
-    /// reached it.
+    /// A floor at y = 0 inside walls at x and z = +-`half` (1 when unset), answered
+    /// analytically; counts what reached it.
     #[derive(Default)]
     struct Room {
         radius: f32,
         height: f32,
         mask: i64,
         asked: [u32; 4],
+        half: f32,
     }
 
     impl Room {
+        fn sized(half: f32) -> Self {
+            Self {
+                half,
+                ..Self::default()
+            }
+        }
+
+        fn half(&self) -> f32 {
+            if self.half > 0.0 { self.half } else { 1.0 }
+        }
+
         /// The wall `at` touches: its inward normal.
         fn wall(&self, at: Vec3) -> Option<Vec3> {
-            let r = self.radius;
+            let (r, h) = (self.radius, self.half());
             [
-                (at.x + r >= 1.0, Vec3::new(-1.0, 0.0, 0.0)),
-                (at.x - r <= -1.0, Vec3::new(1.0, 0.0, 0.0)),
-                (at.z + r >= 1.0, Vec3::new(0.0, 0.0, -1.0)),
-                (at.z - r <= -1.0, Vec3::new(0.0, 0.0, 1.0)),
+                (at.x + r >= h, Vec3::new(-1.0, 0.0, 0.0)),
+                (at.x - r <= -h, Vec3::new(1.0, 0.0, 0.0)),
+                (at.z + r >= h, Vec3::new(0.0, 0.0, -1.0)),
+                (at.z - r <= -h, Vec3::new(0.0, 0.0, 1.0)),
             ]
             .into_iter()
             .find(|w| w.0)
@@ -226,7 +239,7 @@ mod tests {
             if motion.y < 0.0 && b + motion.y < 0.0 {
                 t = t.min((b / -motion.y).max(0.0));
             }
-            let room = 1.0 - self.radius;
+            let room = self.half() - self.radius;
             for (p, d) in [(from.x, motion.x), (from.z, motion.z)] {
                 if d > 0.0 && p + d > room {
                     t = t.min(((room - p) / d).max(0.0));
@@ -378,6 +391,129 @@ mod tests {
         let hits = memo.hits.iter().sum::<u64>() as u32;
         assert_eq!(b[0] + b[1] + hits, a[0] + a[1]);
         assert!(hits > 0, "some query repeated");
+    }
+
+    /// Bounds off the wall at x = `half` in the air along +z, `runs` times from spots along it,
+    /// each tick through the whole native tick ([`crate::full::tick`]) with auto wall runs that
+    /// probe the wall with their small capsule; answers each tick's state, moves and counters.
+    fn wall_runs<S: Space>(
+        space: &mut S,
+        half: f32,
+        runs: usize,
+        mut bracket: impl FnMut(&mut S, bool),
+    ) -> Vec<(State, Moves, TickCounters, MoveCounters)> {
+        let tt = TickTun {
+            max_velocity: 50.0,
+            max_speed: 8.0,
+            max_air_wish_speed: 0.8,
+            ground_snap: true,
+            ground_snap_distance: 0.3,
+            jump_velocity: 5.0,
+            ..TickTun::default()
+        };
+        let ft = FullTun {
+            friction: 6.0,
+            accelerate: 10.0,
+            wall_run_enabled: true,
+            wall_run_auto: true,
+            wall_run_jump_min_speed: 4.0,
+            wall_run_min_speed: 3.0,
+            wall_max_angle_from_vertical: 30.0,
+            wall_reach: 0.6,
+            wall_run_max_time: 0.6,
+            wall_run_end_speed: 2.0,
+            wall_run_requires_forward: true,
+            wall_run_max_fall_speed: 8.0,
+            wall_run_max_approach_angle: 60.0,
+            wall_run_min_height: 1.0,
+            wall_run_min_length: 1.0,
+            wall_run_cooldown: 0.2,
+            wall_run_jump_max_angle: 60.0,
+            ..FullTun::default()
+        };
+        let inp = FullIn {
+            delta: 1.0 / 64.0,
+            move_y: 1.0,
+            yaw: 180.0,
+            speed_base: 8.0,
+            effect_max_speed: 1.0,
+            surface_max_speed_scale: 1.0,
+            surface_friction: 1.0,
+            effect_friction: 1.0,
+            surface_accelerate: 1.0,
+            effect_accelerate: 1.0,
+            air_accel: 12.0,
+            gravity: 20.0,
+            wall_run_gravity: 4.0,
+            ..FullIn::default()
+        };
+        let masks = Masks {
+            collision: 1 | 8,
+            pass_out: 8,
+        };
+        let tun = Tun { radius: 0.4, ..TUN };
+        let mut body = Body::default();
+        let mut out = Vec::new();
+        for run in 0..runs {
+            let mut s = State {
+                mode: AIR,
+                ground_normal: UP,
+                height: 1.8,
+                position: Vec3::new(half - 0.55, 1.2, -half + 2.0 + run as f32),
+                velocity: Vec3::new(1.5, 2.0, 7.0),
+                ..State::default()
+            };
+            let mut mv = Moves {
+                time_since_grounded: 1000.0,
+                time_since_jump_pressed: 1000.0,
+                time_since_jump: 1000.0,
+                wall_run_time: -1.0,
+                slide_time: -1.0,
+                ..Moves::default()
+            };
+            for _ in 0..90 {
+                body.begin_tick();
+                bracket(space, true);
+                let mut c = TickCounters::default();
+                let mut mc = MoveCounters::default();
+                let mut m = Mover::new(&mut body, space, masks, None, tun);
+                full::tick(&mut m, &mut s, &tt, &ft, &inp, &mut mv, &mut c, &mut mc);
+                bracket(space, false);
+                body.end_tick();
+                mv.wall_run_cooldown_left = (mv.wall_run_cooldown_left - inp.delta).max(0.0);
+                out.push((s, mv, c, mc));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_remembered_wall_run_matches_the_plain_one() {
+        let half = 12.0;
+        let mut plain = Room::sized(half);
+        let want = wall_runs(&mut plain, half, 6, |_, _| {});
+        let mut memo = MemoSpace::new(Room::sized(half));
+        let got = wall_runs(
+            &mut memo,
+            half,
+            6,
+            |m, open| {
+                if open { m.open() } else { m.close() }
+            },
+        );
+        assert_eq!(want.len(), got.len());
+        for (i, (w, g)) in want.iter().zip(&got).enumerate() {
+            assert_eq!(w.0, g.0, "state at tick {i}");
+            assert_eq!(w.1, g.1, "moves at tick {i}");
+            assert_eq!(w.2, g.2, "counters at tick {i}");
+            assert_eq!(w.3, g.3, "move counters at tick {i}");
+        }
+        let runs: i64 = want.iter().map(|t| t.3.wall_runs).sum();
+        assert!(runs >= 6, "every bounce wall runs: {runs}");
+        let (a, b) = (plain.asked, memo.inner.asked);
+        assert_eq!(a[2..], b[2..], "overlaps and rays pass through");
+        let hits = memo.hits.iter().sum::<u64>() as u32;
+        assert_eq!(b[0] + b[1] + hits, a[0] + a[1]);
     }
 
     #[test]
