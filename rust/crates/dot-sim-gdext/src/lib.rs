@@ -4,6 +4,8 @@ use godot::prelude::*;
 
 #[cfg(feature = "arms")]
 mod arms;
+#[cfg(feature = "audio")]
+mod audio;
 #[cfg(feature = "motor")]
 mod batch;
 #[cfg(feature = "bots")]

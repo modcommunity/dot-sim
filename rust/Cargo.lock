@@ -19,6 +19,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dot-sim-audio"
+version = "0.1.0"
+dependencies = [
+ "dot-sim-math",
+]
+
+[[package]]
 name = "dot-sim-bots"
 version = "0.1.0"
 dependencies = [
@@ -37,6 +44,7 @@ name = "dot-sim-gdext"
 version = "0.1.0"
 dependencies = [
  "dot-sim-arms",
+ "dot-sim-audio",
  "dot-sim-bots",
  "dot-sim-brain",
  "dot-sim-interp",

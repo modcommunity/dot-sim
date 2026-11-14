@@ -13,6 +13,7 @@ const MODULES := {
 	&"interp": &"DotSimInterpolator",
 	&"motor": &"DotSimFpsBody",
 	&"arms": &"DotSimViewArms",
+	&"audio": &"DotSimAudioSteps",
 }
 
 
