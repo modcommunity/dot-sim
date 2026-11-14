@@ -18,6 +18,8 @@ mod hulls;
 mod interp;
 #[cfg(feature = "motor")]
 mod motor;
+#[cfg(feature = "ragdoll")]
+mod ragdoll;
 #[cfg(feature = "snapshot")]
 mod snapshot;
 #[cfg(feature = "bots")]

@@ -14,6 +14,7 @@ const MODULES := {
 	&"motor": &"DotSimFpsBody",
 	&"arms": &"DotSimViewArms",
 	&"audio": &"DotSimAudioSteps",
+	&"ragdoll": &"DotSimRagdollPose",
 }
 
 

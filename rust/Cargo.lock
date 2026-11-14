@@ -48,6 +48,7 @@ dependencies = [
  "dot-sim-bots",
  "dot-sim-brain",
  "dot-sim-interp",
+ "dot-sim-math",
  "dot-sim-motor",
  "dot-sim-snapshot",
  "godot",

@@ -117,6 +117,54 @@ impl std::ops::Neg for Vec3 {
     }
 }
 
+/// An engine `Transform3D`: the basis as three rows, then the origin.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Xform {
+    pub rows: [Vec3; 3],
+    pub origin: Vec3,
+}
+
+impl Xform {
+    /// The identity transform.
+    pub const IDENTITY: Self = Self {
+        rows: [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        ],
+        origin: Vec3::new(0.0, 0.0, 0.0),
+    };
+
+    /// `Transform3D.xform`: each row dotted with `v`, plus the origin's component.
+    #[inline]
+    pub fn xform(&self, v: Vec3) -> Vec3 {
+        Vec3::new(
+            self.rows[0].dot(v) + self.origin.x,
+            self.rows[1].dot(v) + self.origin.y,
+            self.rows[2].dot(v) + self.origin.z,
+        )
+    }
+
+    /// `Transform3D * Transform3D` as the engine computes it: the origin is `self.xform(o.origin)`,
+    /// and each basis entry is `o`'s column dotted with `self`'s row (`Basis::tdotx` and friends),
+    /// summed in row order.
+    #[inline]
+    pub fn mul(&self, o: &Self) -> Self {
+        let [o0, o1, o2] = o.rows;
+        let row = |r: Vec3| {
+            Vec3::new(
+                o0.x * r.x + o1.x * r.y + o2.x * r.z,
+                o0.y * r.x + o1.y * r.y + o2.y * r.z,
+                o0.z * r.x + o1.z * r.y + o2.z * r.z,
+            )
+        };
+        Self {
+            rows: [row(self.rows[0]), row(self.rows[1]), row(self.rows[2])],
+            origin: self.xform(o.origin),
+        }
+    }
+}
+
 /// The script's `maxf`: `a < b ? b : a`, so a NaN in `a` survives as it does there.
 #[inline]
 pub fn maxf(a: f64, b: f64) -> f64 {
@@ -189,6 +237,32 @@ mod tests {
         assert_eq!(clampf(2.0, 0.0, 1.0), 1.0);
         assert_eq!(clampf(-2.0, 0.0, 1.0), 0.0);
         assert_eq!(minf(0.25, 0.5), 0.25);
+    }
+
+    #[test]
+    fn xform_mul_follows_the_engine_order() {
+        let a = Xform {
+            rows: [
+                Vec3::new(0.1, 0.7, -0.3),
+                Vec3::new(-0.6, 0.2, 0.9),
+                Vec3::new(0.35, -0.45, 0.15),
+            ],
+            origin: Vec3::new(1.5, -2.25, 0.125),
+        };
+        let b = Xform {
+            rows: [
+                Vec3::new(0.3, -0.1, 0.8),
+                Vec3::new(0.05, 0.95, -0.2),
+                Vec3::new(-0.7, 0.4, 0.33),
+            ],
+            origin: Vec3::new(-0.4, 0.6, 3.0),
+        };
+        let m = a.mul(&b);
+        // Basis::tdotz(a.rows[1]): b's third column dotted with a's second row, in row order.
+        assert_eq!(m.rows[1].z, 0.8f32 * -0.6 + -0.2f32 * 0.2 + 0.33f32 * 0.9);
+        assert_eq!(m.origin.x, 0.1f32 * -0.4 + 0.7 * 0.6 + -0.3 * 3.0 + 1.5);
+        assert_eq!(Xform::IDENTITY.mul(&b), b);
+        assert_eq!(a.mul(&Xform::IDENTITY), a);
     }
 
     #[test]
