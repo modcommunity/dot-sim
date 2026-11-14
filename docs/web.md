@@ -51,14 +51,14 @@ The dlink export with dot-sim is about 1.2 MB larger after gzip than the plain e
 1. **dot-net gated the codec off on the web.** `DotNetSimCodec.available()` checked `not OS.has_feature("web")`; dot-net now checks only `ClassDB.class_exists` (the games link dot-net's checkout, so the one change reaches all of them).
 2. **Encode parity on wasm: fixed.** GDScript's `int(float)` is the platform's conversion. On x86-64 (`cvttsd2si`) a NaN or out-of-range value is `i64::MIN`; under Emscripten (`trunc_sat`) a NaN is 0 and the rest saturates, measured in Chromium: `int(nan)` 0, `int(1e300)` `i64::MAX`, `int(-1e300)` `i64::MIN`. `to_int` (dot-sim-snapshot) hard-coded the x86 answer, so a NaN or 1e300 in an unsigned field encoded differently (13 of the probe's edge cases). It now follows the target: Rust's saturating `as` on wasm, the x86 emulation elsewhere. Native x86 output is unchanged.
 3. **The FC web export has to change.** It needs the dlink nothreads template with Extensions Support, and the CDN must serve `index.side.wasm` and `dot_sim.wasm`. A plain template with any `.gdextension` in the pack refuses to start. That includes godot-sqlite's, which has web entries.
-4. **The build box needs the pinned nightly** with `rust-src` and the emscripten target, plus emsdk 3.1.74. There is no web CI job yet.
+4. **Release asset and CI: done.** `ci/targets.tsv` has a `web-wasm32` row, and the `web` jobs in `ci.yml` and `release.yml` build it with `ci/web.sh` (the pinned nightly with `rust-src` and the emscripten target, emsdk 3.1.74). Every tag attaches `dot_sim-X.Y.Z-web-wasm32.zip` beside the desktop zips, and dot-server-deploy's `tools/fetch-natives.sh --platform web-wasm32` installs it like the others.
 
 ## Rules
 
-- **A plain-template web export never carries `addons/dot_sim/dot_sim.gdextension`.** With the plain template, that file alone stops the game's scripts (`GDExtension libraries are not supported by this engine version`). Only a dlink export may carry it, and only `ci/web.sh` writes the `web.wasm32` line.
+- **A plain-template web export never carries `addons/dot_sim/dot_sim.gdextension`.** With the plain template, that file alone stops the game's scripts (`GDExtension libraries are not supported by this engine version`). Only a dlink export may carry it, and the `web.wasm32` line appears only when `bin/web-wasm32/dot_sim.wasm` is installed (by `ci/web.sh` or the release zip).
 - Every native class is reached through `ClassDB.class_exists` (see `DotSim.has`), never by name in a typed script, so the scripts compile where it is absent.
 - The newest nightly breaks the build. It rejects `-Z emscripten-wasm-eh=false`, and without that flag the page fails with `LinkError: ... "__cpp_exception": tag import requires a WebAssembly.Tag`. Move `NIGHTLY` in `ci/web.sh` only after a browser try.
-- `ci/targets.tsv` has no web row (`ci/check.sh` enforces that). The web build stays opt-in until the owner decides.
+- `ci/targets.tsv` has exactly one web row, `web-wasm32` (`ci/check.sh` enforces that). `ci/install.sh` refuses to build it and only lays it out; `ci/web.sh` is the build.
 
 ## Not tested
 

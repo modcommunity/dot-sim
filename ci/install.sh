@@ -59,6 +59,9 @@ if [ "$INSTALL" = 1 ]; then
     R="$(awk -F'\t' -v p="$PLATFORM" '$0!~/^#/ && $1==p {print; exit}' ci/targets.tsv)"
     [ -n "$R" ] || { echo "install.sh: '$PLATFORM' is not in ci/targets.tsv" >&2; exit 2; }
     IFS=$'\t' read -r _ TARGET _ PATTERN _ <<<"$R"
+    # The web side module needs the pinned nightly, -Zbuild-std and emsdk: ci/web.sh builds it, then installs
+    # it through here with --no-build.
+    [ "$PLATFORM" != web-wasm32 ] || [ "$BUILD" = 0 ] || { echo "install.sh: build web-wasm32 with ci/web.sh" >&2; exit 2; }
     FILE="${PATTERN//\{crate\}/$CRATE}"
 
     if [ "$BUILD" = 1 ]; then
@@ -86,7 +89,5 @@ OUT=addons/dot_sim/dot_sim.gdextension
         f="${pat//\{crate\}/$CRATE}"
         if [ -f "addons/dot_sim/bin/$plat/$f" ]; then echo "$key = \"res://addons/dot_sim/bin/$plat/$f\""; fi
     done
-    # The web side module (ci/web.sh, opt-in): only a dlink web export may carry this file (docs/web.md).
-    if [ -f "addons/dot_sim/bin/web-wasm32/$CRATE.wasm" ]; then echo "web.wasm32 = \"res://addons/dot_sim/bin/web-wasm32/$CRATE.wasm\""; fi
 } > "$OUT"
 [ "$INSTALL" = 1 ] && echo "installed $DEST/$FILE" || echo "wrote $OUT"

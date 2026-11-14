@@ -1,13 +1,14 @@
 # Tag vX.Y.Z and the release gets, from this one workflow:
 #   - the GDScript addon zip and its SHA256SUMS (dot-ci's release.yml, as every addon),
-#   - dot_sim-X.Y.Z-<platform>.zip for each desktop platform in ci/targets.tsv, the natives.json
+#   - dot_sim-X.Y.Z-<platform>.zip for each platform in ci/targets.tsv (web-wasm32 included), the natives.json
 #     manifest naming them and their sha256, and a combined SHA256SUMS line per zip.
 # The CDN is fed by the existing pipeline, not from here: the site publishes an addon's pack
 # from its release (hourly, or "Pull now") and holds the signing key, so this workflow
 # signs and uploads nothing to the content origin (dot-server-deploy docs/releases.md). A GDExtension
 # must be a real file on disk, so the natives are never inside the mounted pack; they ride with the
 # server install and the native client export, which unpack the per-platform zips at the project
-# root. Web builds take no part and keep running the GDScript twins.
+# root. dot_sim-X.Y.Z-web-wasm32.zip is the web side module (job web, ci/web.sh): only a dlink nothreads
+# web export carries it (dot-server-deploy export-web); a plain web export runs the GDScript twins.
 name: Release
 
 on:
@@ -80,8 +81,72 @@ jobs:
                   path: dist/
                   retention-days: 3
 
+    # The web side module (docs/web.md): the pinned nightly with rust-src (-Zbuild-std), emsdk 3.1.74, and a
+    # Godot binary for godot-rust's api-custom. Built from the same crate as the desktop rows; a dlink
+    # nothreads web export loads it, a plain one runs the GDScript twins.
+    web:
+        needs: validate
+        name: native ${{ matrix.platform }}
+        runs-on: ubuntu-22.04
+        timeout-minutes: 40
+        strategy:
+            matrix:
+                include:
+                    - platform: web-wasm32
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  path: project
+            - name: A crate is required
+              run: |
+                  [ -f project/rust/Cargo.toml ] || { echo "::notice::no rust/Cargo.toml: no web build"; echo "SKIP=1" >> "$GITHUB_ENV"; }
+            - uses: actions/checkout@v4
+              if: env.SKIP != '1'
+              with:
+                  repository: modcommunity/dot-ci
+                  ref: v1
+                  path: dot-ci
+            - name: Godot for the API dump
+              if: env.SKIP != '1'
+              run: |
+                  sudo apt-get update -qq
+                  sudo apt-get install -y -qq --no-install-recommends libfontconfig1 libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6
+                  GODOT="$(dot-ci/scripts/fetch-godot.sh --dest ~/.godot-ci/$(dot-ci/scripts/fetch-godot.sh --version))"
+                  echo "GODOT4_BIN=$GODOT" >> "$GITHUB_ENV"
+            - name: Pinned nightly (must match NIGHTLY in ci/web.sh)
+              if: env.SKIP != '1'
+              uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: nightly-2026-01-10
+                  targets: wasm32-unknown-emscripten
+                  components: rust-src
+            - uses: mymindstorm/setup-emsdk@v14
+              if: env.SKIP != '1'
+              with:
+                  version: 3.1.74
+            - uses: Swatinem/rust-cache@v2
+              if: env.SKIP != '1'
+              with:
+                  workspaces: project/rust
+                  key: web-wasm32
+            - name: Build and lay out the side module
+              if: env.SKIP != '1'
+              run: bash project/ci/web.sh
+            - name: Package
+              if: env.SKIP != '1'
+              run: cd project && bash ci/package.sh --version "${GITHUB_REF_NAME}" --platform web-wasm32
+            - uses: actions/upload-artifact@v4
+              if: env.SKIP != '1'
+              with:
+                  name: natives-web-wasm32
+                  path: project/dist/
+                  retention-days: 3
+
     attach:
-        needs: [addon, native]
+        needs: [addon, native, web]
         # A platform that cannot build (a macOS runner the account cannot get) must not withhold the
         # others: attach whatever was built; natives.json names exactly what is there.
         if: ${{ !cancelled() && needs.addon.result == 'success' }}

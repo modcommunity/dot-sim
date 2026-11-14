@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build the web side module (opt-in; docs/web.md) and install it where a dlink web export loads it.
-#   ci/web.sh [--no-build]
+# Build the web side module (docs/web.md) and install it where a dlink web export loads it.
+#   ci/web.sh [--no-build]        then: ci/package.sh --version X --platform web-wasm32 (the release asset)
 # Writes addons/dot_sim/bin/web-wasm32/dot_sim.wasm and regenerates addons/dot_sim/dot_sim.gdextension
 # with a `web.wasm32` line (both gitignored). A project holding that file must be exported with the
 # single-threaded dlink template (Extensions Support on, Thread Support off): the plain web template
@@ -33,10 +33,6 @@ if [ "$BUILD" = 1 ]; then
     (cd rust && cargo "+$NIGHTLY" build --locked --release -p dot-sim-gdext --features web-nothreads \
         -Zbuild-std --target "$TARGET")
 fi
-SRC="rust/target/$TARGET/release/dot_sim.wasm"
-[ -f "$SRC" ] || { echo "web.sh: $SRC not found (build it, or drop --no-build)" >&2; exit 1; }
-DEST=addons/dot_sim/bin/web-wasm32
-mkdir -p "$DEST"
-cp "$SRC" "$DEST/dot_sim.wasm"
-bash ci/install.sh --gdextension-only
-echo "installed $DEST/dot_sim.wasm ($(stat -c %s "$DEST/dot_sim.wasm") bytes)"
+# The web-wasm32 row of ci/targets.tsv: install.sh copies rust/target/<target>/release/dot_sim.wasm into
+# addons/dot_sim/bin/web-wasm32/ and lists it (web.wasm32) in the .gdextension with whatever else is installed.
+bash ci/install.sh --platform web-wasm32 --no-build

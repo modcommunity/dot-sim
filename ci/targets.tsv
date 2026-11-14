@@ -1,7 +1,9 @@
 # platform	rust target	runner	library file (lib<crate>.so, <crate>.dll, lib<crate>.dylib)	godot feature key
-# web is deliberately absent: web clients run the GDScript twins and never load a library.
+# web-wasm32 is the dlink side module (docs/web.md): built by ci/web.sh, never by ci/install.sh, and loaded only
+# by a web export made with the dlink nothreads template; a plain web export runs the GDScript twins.
 linux-x86_64	x86_64-unknown-linux-gnu	ubuntu-22.04	lib{crate}.so	linux.x86_64
 linux-arm64	aarch64-unknown-linux-gnu	ubuntu-22.04-arm	lib{crate}.so	linux.arm64
 windows-x86_64	x86_64-pc-windows-msvc	windows-2022	{crate}.dll	windows.x86_64
 macos-arm64	aarch64-apple-darwin	macos-14	lib{crate}.dylib	macos.arm64
 macos-x86_64	x86_64-apple-darwin	macos-15-intel	lib{crate}.dylib	macos.x86_64
+web-wasm32	wasm32-unknown-emscripten	ubuntu-22.04	{crate}.wasm	web.wasm32
