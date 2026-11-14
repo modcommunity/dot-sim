@@ -7,6 +7,8 @@
 pub use dot_sim_math::Vec3;
 use dot_sim_math::rad_to_deg;
 
+pub mod tier;
+
 /// Beyond this many degrees off the view, a body already being fought is no longer tracked.
 pub const TRACK_DEG: f64 = 90.0;
 

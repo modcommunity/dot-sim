@@ -8,6 +8,9 @@ const CHANNEL := "dot.sim.selftest"
 ## Random sight scans compared one by one.
 const SCANS := 3000
 
+## Random think-tier ticks (settings, people and bots) compared query by query.
+const TIER_ROUNDS := 400
+
 ## Bots and ticks of the whole-brain run, played once in script and once native.
 const BOTS := 24
 const TICKS := 600
@@ -32,6 +35,7 @@ func _run() -> void:
 	if native:
 		_test_scan_parity()
 		_test_brain_parity()
+		_test_tier_parity()
 		_bench_scan()
 	if DotSim.has(&"arms"):
 		_test_arms_parity()
@@ -184,6 +188,84 @@ func _play() -> PackedStringArray:
 				c.health = 1.0
 		out.append(line)
 	return out
+
+
+## dot-bot's think tiers (DotSimThinkTier): random settings, people and bots; every schedule, period and body period equal, and the same counts.
+func _test_tier_parity() -> void:
+	print("think tiers: native against script")
+	var rng := RandomNumberGenerator.new()
+	var gd := DotBotThinkTier.new()
+	gd.native = false
+	var nat := DotBotThinkTier.new()
+	var mismatches := 0
+	var queries := 0
+	var on := 0
+	var first := ""
+	for round in TIER_ROUNDS:
+		for t: DotBotThinkTier in [gd, nat]:
+			rng.seed = round * 7919 + 1
+			t.above = rng.randi_range(0, 8)
+			t.near_every = rng.randi_range(1, 4)
+			t.far_every = rng.randi_range(1, 8)
+			t.far_range = rng.randf_range(5.0, 60.0)
+			t.close_range = rng.randf_range(1.0, 20.0)
+			t.nearest = rng.randi_range(0, 4)
+			t.engaged_far_every = rng.randi_range(1, 4)
+			t.engaged_range = rng.randf_range(5.0, 40.0)
+			t.idle_view_every = rng.randi_range(1, 4)
+			t.load_scale = rng.randf_range(0.5, 2.5)
+			t.view_range = rng.randf_range(10.0, 90.0)
+			t.view_half_angle = rng.randf_range(10.0, 120.0)
+			t.body_near_every = rng.randi_range(1, 3)
+			t.body_far_every = rng.randi_range(1, 6)
+			t.body_above = rng.randi_range(0, 10)
+		rng.seed = round * 104729 + 3
+		var people := rng.randi_range(0, 6)
+		var eyes := PackedVector3Array()
+		var looks := PackedVector3Array()
+		for i in people:
+			eyes.append(_spot(rng))
+			looks.append(Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.3, 0.3), rng.randf_range(-1, 1)).normalized())
+		var bots := rng.randi_range(1, 16)
+		var ids := PackedInt32Array()
+		var spots := PackedVector3Array()
+		for i in bots:
+			ids.append(100 + i)
+			spots.append(_spot(rng))
+		var players := people + bots + rng.randi_range(0, 8)
+		gd.begin(players, eyes, looks, ids, spots)
+		nat.begin(players, eyes, looks, ids, spots)
+		if not nat.is_native() or gd.is_native():
+			mismatches += 1
+			first = first if first != "" else "round %d: native %s, script %s" % [round, nat.is_native(), gd.is_native()]
+		if gd.is_on() != nat.is_on():
+			mismatches += 1
+			first = first if first != "" else "round %d: is_on %s vs %s" % [round, gd.is_on(), nat.is_on()]
+		on += int(gd.is_on())
+		var tick := rng.randi_range(0, 100000)
+		for i in bots:
+			var seed := rng.randi_range(-50, 5000)
+			var engaged := rng.randf() < 0.3
+			var idle := not engaged and rng.randf() < 0.4
+			var floor_every := rng.randi_range(1, 3)
+			var coastable := rng.randf() < 0.75
+			var a := [gd.schedule(ids[i], spots[i], engaged, idle, tick, seed, floor_every, coastable), gd.period(ids[i], spots[i], engaged, idle), gd.body_period(ids[i], spots[i], engaged, idle)]
+			var b := [nat.schedule(ids[i], spots[i], engaged, idle, tick, seed, floor_every, coastable), nat.period(ids[i], spots[i], engaged, idle), nat.body_period(ids[i], spots[i], engaged, idle)]
+			queries += 1
+			if a != b:
+				mismatches += 1
+				first = first if first != "" else "round %d bot %d: %s vs %s" % [round, i, a, b]
+		var da := gd.describe()
+		var db := nat.describe()
+		if da.counts != db.counts or da.body_counts != db.body_counts or da.pinned != db.pinned:
+			mismatches += 1
+			first = first if first != "" else "round %d counts: %s vs %s" % [round, da, db]
+	_check(mismatches == 0, "%d rounds, %d bots: schedules, periods, body periods, pins and counts the same, every tick native (native=false keeps the script)" % [TIER_ROUNDS, queries], first)
+	_check(on > TIER_ROUNDS / 4 and on < TIER_ROUNDS, "the rounds mix tiers on and off", str(on))
+
+
+func _spot(rng: RandomNumberGenerator) -> Vector3:
+	return Vector3(rng.randf_range(-70, 70), rng.randf_range(-4, 4), rng.randf_range(-70, 70))
 
 
 ## The cost of one scan, script and native, over the same worlds.

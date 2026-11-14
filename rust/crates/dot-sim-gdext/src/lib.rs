@@ -20,6 +20,8 @@ mod interp;
 mod motor;
 #[cfg(feature = "snapshot")]
 mod snapshot;
+#[cfg(feature = "bots")]
+mod tier;
 
 struct DotSimExtension;
 
