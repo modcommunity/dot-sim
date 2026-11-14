@@ -2,14 +2,14 @@
 
 **Native twins of hot script code**, one optional GDExtension (Rust, godot-rust `godot` 0.5.5), one module per job: bots (dot-bot's sight scan), snapshot (dot-net's snapshot encode and decode), motor (dot-player-controller's collision queries and whole motor tick, `DotSimFpsBody`). The script original stays the specification and the fallback.
 
-Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is specific to dot-sim. The reasoning is in [docs/design.md](docs/design.md), the browser verdict in [docs/web.md](docs/web.md).
+Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is specific to dot-sim. The reasoning is in [docs/design.md](docs/design.md), the browser build and its status in [docs/web.md](docs/web.md).
 
 ## Rules that bite
 
 - **Bit-identical, not close.** A native kernel gives the script's exact answer: f32 vector math in the engine's order, f64 where the script computes in floats, one rounding to f32 where the script stores into a packed float array. The suite compares to the bit. [design](docs/design.md#precision)
 - **Nothing may need dot-sim.** Callers reach a native class only through `ClassDB` by name (`DotSim.has`, `ClassDB.instantiate`), never as a typed class, so scripts compile and run without the library.
 - **Never commit a built library or the `.gdextension`.** Both are gitignored and written by `ci/install.sh`; a checkout without them runs the script path, which is what the web client always does.
-- **Web exports never carry the extension.** With the plain template, the `.gdextension` alone stops the game's scripts. [web](docs/web.md)
+- **Plain web exports never carry the extension.** With the plain template, the `.gdextension` alone stops the game's scripts. Only a dlink export built with `ci/web.sh` may carry it, and that build is opt-in and not shipped. [web](docs/web.md)
 - **Pure crates hold the logic.** Engine types only in `dot-sim-gdext`; kernels take plain arrays so `cargo test` covers them.
 - **The snapshot wire format is frozen by the script codec.** Native encode and decode produce the same bytes; golden-byte tests guard it.
 

@@ -81,4 +81,4 @@ With dot-net's core off, a server's send is mostly per-pair bookkeeping, not enc
 
 ## Shipping
 
-The libraries are built per platform (linux, windows, macos; x86_64 and arm64) by CI and shipped as release-asset zips, never committed ([native-ci.md](native-ci.md)). A dedicated server unpacks the zip for its platform at the project root (or builds with `ci/install.sh`) and imports once so the engine lists the extension. Web exports never carry them ([web.md](web.md)), so the web build and its size gate are untouched.
+The libraries are built per platform (linux, windows, macos; x86_64 and arm64) by CI and shipped as release-asset zips, never committed ([native-ci.md](native-ci.md)). A dedicated server unpacks the zip for its platform at the project root (or builds with `ci/install.sh`) and imports once so the engine lists the extension. Web exports do not carry them (the dlink web build is opt-in and not shipped, [web.md](web.md)), so the web build and its size gate are untouched.

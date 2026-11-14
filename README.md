@@ -14,7 +14,7 @@ Native twins of hot simulation code for the dot family of Godot addons, as one o
 
 `DotSim.has(&"bots")` tells whether a module is loaded. dot-bot uses it on its own when present; nothing else is needed.
 
-Keep `addons/dot_sim/bin/` and `dot_sim.gdextension` out of web exports: see [docs/web.md](docs/web.md).
+Keep `addons/dot_sim/bin/` and `dot_sim.gdextension` out of plain-template web exports; the opt-in dlink web build is `ci/web.sh`. See [docs/web.md](docs/web.md).
 
 ## Test
 
