@@ -6,7 +6,7 @@ Native (Rust, GDExtension) twins of hot script code in the dot family, one modul
 
 | Module | Crate | Native class | Script original | State |
 | --- | --- | --- | --- | --- |
-| bots | `dot-sim-bots` | `DotSimBotSenses` | `DotBotBrain._candidates` (dot-bot) | the sight scan |
+| bots | `dot-sim-bots` | `DotSimBotSenses` | `DotBotBrain._candidates` (dot-bot); `DotBotWorld._pack` and the game's near test for `load_bodies`/`nobody_near` | the sight scan; the body columns (prototype, not wired yet) |
 | snapshot | `dot-sim-snapshot` | `DotSimSnapshotCodec` | `DotNetVar.write`/`read` behind `DotNetBehaviour._encode`/`read_state` (dot-net) | encode and decode; the same bytes, held by golden-byte and parity tests |
 | motor | `dot-sim-motor` | `DotSimFpsBody` | `DotFpsPhysicsBody` (dot-player-controller): sweep, rest contact, overlap and their fallbacks; `DotFpsMotor`'s collide-and-slide and step (`_slide`, `_prefer_step`, `move_and_slide`) with `DotFpsHullBody`'s player hulls | the motor's collision queries and slide, to the bit (dot-player-controller's `motor_native_parity` replays recorded inputs at 22/33/66 Hz with and without hulls, and fuzzes queries and slides); `motor_tick` runs a whole `DotFpsMotor` tick (ground check, jumps, slide, launch, dash, wall run and wall jump, friction, acceleration, gravity, collide-and-slide) in one call, and `motor_native_tick_parity` compares it field by field with the script over recorded and seeded random input streams; crouch, view smoothing and the timers outside the motor stay in script; `DotSimMotorBatch.run` ticks a run of players' `motor_tick`s in one call (packed rows in, packed rows out), in order, each body in the hull world seeing the earlier ones where they came to rest, and `rollback` takes rows back when a player ends its tick elsewhere (`motor_batch_parity` holds it to the single calls to the bit, with pushes, teleports and deaths between) |
 
@@ -45,6 +45,16 @@ Measured first (cp-orange-x3, 31 bots, headless on the build machine, per frame 
 - dot-bot names the class only as a `StringName` for `ClassDB`, so dot-bot does not depend on dot-sim.
 - Only the main thread scans natively. The packed senses keep the last scan's answer, so a brain thinking on a worker thread (game-fatal-contact's `bot_threads`) scans in script.
 - Games expose the switch as a setting (game-fatal-contact: cvar `bot_native`, on by default); without the library it is script either way.
+
+### Body columns (prototype)
+
+Native code that reads script object fields pays a Variant round trip per field (10 fields of 32 contacts: 48 µs from script, about 160 µs from Rust), so a kernel only wins on data that never lives in such fields. `DotSimBotSenses.load_bodies(ids, positions, teams, alive, eye_heights, aim_heights)` takes the bodies as columns the game appends while it writes its contacts, derives the scan table and the eyes (`aim_point()`, `eye()` in `f32`, as `_pack`), and `nobody_near(near)` answers the game's think-rate near test for every body in one call. The suite holds both to the script (2000 scans, every near flag). The plan, its later slices (a motion mirror in `DotSimMotorBatch`, native all-contact loops, command rows) and the measurements: perf-bench `native-state-layout-20261114.md`. Not wired into dot-bot or the game yet.
+
+| One tick, 32 bodies, 31 near tests (suite, PH loaded, 3 runs) | µs |
+| --- | --- |
+| script: `_pack`, near cells, 31 `_nobody_near` | 280, 447, 348 |
+| columns read back from contacts, `load_bodies`, `nobody_near` | 30, 58, 37 |
+| columns appended by the game, `load_bodies`, `nobody_near` | 14, 27, 15 |
 
 ## Measured (build machine, headless, script fast scan against native)
 

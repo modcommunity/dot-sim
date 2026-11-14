@@ -4,8 +4,11 @@
 //! view cone, with their closeness score. It is the brain's `_candidates`, the same arithmetic in
 //! the same precision, so the brain's choices do not change with the kernel.
 
+mod table;
+
 pub use dot_sim_math::Vec3;
 use dot_sim_math::rad_to_deg;
+pub use table::Bodies;
 
 /// Beyond this many degrees off the view, a body already being fought is no longer tracked.
 pub const TRACK_DEG: f64 = 90.0;

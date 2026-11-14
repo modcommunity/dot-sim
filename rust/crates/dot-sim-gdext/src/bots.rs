@@ -1,6 +1,6 @@
 //! `DotSimBotSenses`: the sight scan of a bot's think, over one packed table per tick.
 
-use dot_sim_bots::{Contacts, Found, Query, Vec3 as V3, candidates};
+use dot_sim_bots::{Bodies, Contacts, Found, Query, Vec3 as V3, candidates};
 use godot::prelude::*;
 
 /// The packed bodies of one tick and the last scan's answer.
@@ -11,6 +11,9 @@ pub struct DotSimBotSenses {
     /// The bodies' eyes, row for row with `table` once [`Self::load_eyes`] gave them.
     pub(crate) eyes: Vec<V3>,
     found: Found,
+    /// The columns [`Self::load_bodies`] was given, kept for the near test.
+    bodies: Bodies,
+    near: Vec<u8>,
 }
 
 #[godot_api]
@@ -30,6 +33,7 @@ impl DotSimBotSenses {
             .min(teams.len())
             .min(alive.len());
         self.eyes.clear();
+        self.bodies.clear();
         let t = &mut self.table;
         t.ids.clear();
         t.points.clear();
@@ -53,6 +57,53 @@ impl DotSimBotSenses {
         self.eyes.clear();
         self.eyes
             .extend(eyes.as_slice().iter().map(|p| V3::new(p.x, p.y, p.z)));
+    }
+
+    /// Replaces the table from the game's own columns, one row per body: ids, feet, teams, alive
+    /// flags, eye and aim heights. Derives the aim points and eyes here, so the script neither
+    /// builds them nor reads a contact object for them; replaces [`Self::load_contacts`] plus
+    /// [`Self::load_eyes`].
+    #[func]
+    fn load_bodies(
+        &mut self,
+        ids: PackedInt64Array,
+        positions: PackedVector3Array,
+        teams: PackedInt32Array,
+        alive: PackedByteArray,
+        eye_heights: PackedFloat32Array,
+        aim_heights: PackedFloat32Array,
+    ) {
+        let n = ids
+            .len()
+            .min(positions.len())
+            .min(teams.len())
+            .min(alive.len())
+            .min(eye_heights.len())
+            .min(aim_heights.len());
+        let b = &mut self.bodies;
+        b.clear();
+        b.ids.extend_from_slice(&ids.as_slice()[..n]);
+        b.positions.extend(
+            positions.as_slice()[..n]
+                .iter()
+                .map(|p| V3::new(p.x, p.y, p.z)),
+        );
+        b.teams.extend_from_slice(&teams.as_slice()[..n]);
+        b.alive
+            .extend(alive.as_slice()[..n].iter().map(|a| *a != 0));
+        b.eye_heights
+            .extend_from_slice(&eye_heights.as_slice()[..n]);
+        b.aim_heights
+            .extend_from_slice(&aim_heights.as_slice()[..n]);
+        b.fill(&mut self.table, &mut self.eyes);
+    }
+
+    /// One byte per row of [`Self::load_bodies`]: 1 when no live enemy of that body stands closer
+    /// than `near` metres, feet to feet (the game's think-rate test, for every body at once).
+    #[func]
+    fn nobody_near(&mut self, near: f64) -> PackedByteArray {
+        self.bodies.nobody_near_all(near, &mut self.near);
+        PackedByteArray::from(self.near.as_slice())
     }
 
     /// Indices of the bodies inside range and cone (or still tracked), in table order.

@@ -33,6 +33,8 @@ func _run() -> void:
 		_test_scan_parity()
 		_test_brain_parity()
 		_bench_scan()
+		_test_bodies_parity()
+		_bench_bodies()
 	print("")
 	print("%d passed, %d failed" % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
@@ -210,6 +212,162 @@ func _bench_scan() -> void:
 	var nat := float(Time.get_ticks_usec() - t0) / reps
 	print("  32 bodies: script %.2f us/scan, native %.2f us/scan (%.1fx)" % [gd, nat, gd / maxf(nat, 0.001)])
 	_check(nat < gd, "the native scan is cheaper than the script one")
+
+
+## The column table (load_bodies) against the contact objects (_pack) and the game's script near test.
+func _test_bodies_parity() -> void:
+	print("column table")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var p := DotBotProfile.new()
+	var mismatches := 0
+	var near_bad := 0
+	var near_hits := 0
+	var first := ""
+	for w in 200:
+		var bodies := _bodies(rng, rng.randi_range(1, 64))
+		var world := _world(bodies)
+		world.contacts_version = w
+		var packed: Object = world.senses(bodies)
+		var cols: Object = ClassDB.instantiate(&"DotSimBotSenses")
+		_load_columns(cols, bodies)
+		var me: DotBotContact = bodies[rng.randi() % bodies.size()]
+		for q in 10:
+			var sight := rng.randf_range(5.0, 120.0)
+			var target: int = (bodies[rng.randi() % bodies.size()] as DotBotContact).id if rng.randf() < 0.6 else -1
+			var visible := rng.randf() < 0.5
+			var forward := DotBotAim.direction(rng.randf_range(-180, 180), rng.randf_range(-30, 30))
+			var a: PackedInt32Array = packed.call(&"candidates", me.id, me.team, me.eye(), forward, p.fov * 0.5, sight, 2.0, target, visible)
+			var sa: PackedFloat32Array = packed.call(&"scores")
+			var b: PackedInt32Array = cols.call(&"candidates", me.id, me.team, me.eye(), forward, p.fov * 0.5, sight, 2.0, target, visible)
+			var sb: PackedFloat32Array = cols.call(&"scores")
+			if a != b or sa != sb or packed.call(&"target_dead") != cols.call(&"target_dead"):
+				mismatches += 1
+				if first == "":
+					first = "world %d: %s vs %s" % [w, a, b]
+		var near := rng.randf_range(5.0, 40.0)
+		var flags: PackedByteArray = cols.call(&"nobody_near", near)
+		for i in bodies.size():
+			var want := _nobody_near_script(bodies[i], bodies, near)
+			near_hits += 0 if want else 1
+			if flags[i] != (1 if want else 0):
+				near_bad += 1
+	_check(mismatches == 0, "2000 scans over load_bodies equal the ones over the packed contacts", first)
+	_check(near_bad == 0, "the native near test agrees with the script one on every body", str(near_bad))
+	_check(near_hits > 100, "the near test is not trivially true", str(near_hits))
+	var sight: Object = ClassDB.instantiate(&"DotSimBotSenses")
+	_load_columns(sight, _bodies(rng, 8))
+	sight.call(&"load_contacts", PackedInt64Array([1]), PackedVector3Array([Vector3.ZERO]), PackedInt32Array([0]), PackedByteArray([1]))
+	_check((sight.call(&"nobody_near", 10.0) as PackedByteArray).is_empty(), "load_contacts drops the columns of an earlier load_bodies")
+
+
+## The game's _nobody_near over all contacts (game-fatal-contact arena_bots.gd), the script answer.
+static func _nobody_near_script(me: DotBotContact, all: Array, near: float) -> bool:
+	var near_sq := near * near
+	for item: DotBotContact in all:
+		if item.alive and item.id != me.id and me.is_enemy(item) and item.position.distance_squared_to(me.position) < near_sq:
+			return false
+	return true
+
+
+## The game's near test as it runs at 32 players: live contacts filed by cell, 3x3 cells per bot.
+static func _nobody_near_cells(me: DotBotContact, cells: Dictionary, near: float) -> bool:
+	var near_sq := near * near
+	var cx := int(floorf(me.position.x / near)) + 4096
+	var cz := int(floorf(me.position.z / near)) + 4096
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			var cell: Variant = cells.get((cx + dx) * 8192 + cz + dz)
+			if cell == null:
+				continue
+			for item: DotBotContact in cell:
+				if item.id != me.id and me.is_enemy(item) and item.position.distance_squared_to(me.position) < near_sq:
+					return false
+	return true
+
+
+## Columns read back from contact objects: the worst case, a game that keeps no columns of its own.
+static func _load_columns(senses: Object, bodies: Array) -> void:
+	var ids := PackedInt64Array()
+	var pos := PackedVector3Array()
+	var teams := PackedInt32Array()
+	var alive := PackedByteArray()
+	var eyes := PackedFloat32Array()
+	var aims := PackedFloat32Array()
+	for c: DotBotContact in bodies:
+		ids.append(c.id)
+		pos.append(c.position)
+		teams.append(c.team)
+		alive.append(1 if c.alive else 0)
+		eyes.append(c.eye_height)
+		aims.append(c.aim_height)
+	senses.call(&"load_bodies", ids, pos, teams, alive, eyes, aims)
+
+
+## One tick of the contact work FC does for 32 players and 31 bots, script against columns:
+## script = _pack + the near cells + 31 near tests; columns = the columns appended + load_bodies + one near call.
+func _bench_bodies() -> void:
+	print("column table cost (one tick, 32 bodies, 31 near tests)")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var bodies := _bodies(rng, 32)
+	for c: DotBotContact in bodies:
+		c.position.y = 0.0
+	var world := _world(bodies)
+	var near := 30.0
+	var reps := 2000
+	var sink := 0
+	var t0 := Time.get_ticks_usec()
+	for r in reps:
+		world.contacts_version = r
+		world.senses(bodies)
+		var cells := {}
+		for c: DotBotContact in bodies:
+			if c.alive:
+				var k := (int(floorf(c.position.x / near)) + 4096) * 8192 + int(floorf(c.position.z / near)) + 4096
+				var cell: Variant = cells.get(k)
+				if cell == null:
+					cells[k] = [c]
+				else:
+					(cell as Array).append(c)
+		for i in 31:
+			sink += 1 if _nobody_near_cells(bodies[i], cells, near) else 0
+	var gd := float(Time.get_ticks_usec() - t0) / reps
+	var cols: Object = ClassDB.instantiate(&"DotSimBotSenses")
+	t0 = Time.get_ticks_usec()
+	for r in reps:
+		_load_columns(cols, bodies)
+		var flags: PackedByteArray = cols.call(&"nobody_near", near)
+		for i in 31:
+			sink += flags[i]
+	var worst := float(Time.get_ticks_usec() - t0) / reps
+	# The game keeps the columns as it writes the contacts: only the appends are new work.
+	var src_pos := PackedVector3Array()
+	for c: DotBotContact in bodies:
+		src_pos.append(c.position)
+	var ids := PackedInt64Array()
+	var pos := PackedVector3Array()
+	var teams := PackedInt32Array()
+	var alive := PackedByteArray()
+	var eyes := PackedFloat32Array()
+	var aims := PackedFloat32Array()
+	t0 = Time.get_ticks_usec()
+	for r in reps:
+		ids.clear(); pos.clear(); teams.clear(); alive.clear(); eyes.clear(); aims.clear()
+		for i in 32:
+			ids.append(i + 1)
+			pos.append(src_pos[i])
+			teams.append(i % 3)
+			alive.append(1)
+			eyes.append(1.6)
+			aims.append(1.25)
+		cols.call(&"load_bodies", ids, pos, teams, alive, eyes, aims)
+		var flags: PackedByteArray = cols.call(&"nobody_near", near)
+		for i in 31:
+			sink += flags[i]
+	var inline := float(Time.get_ticks_usec() - t0) / reps
+	print("  script %.1f us, columns read from contacts %.1f us (%.1fx), columns kept by the game %.1f us (%.1fx)  [%d]" % [gd, worst, gd / maxf(worst, 0.001), inline, gd / maxf(inline, 0.001), sink % 7])
+	_check(worst < gd, "the column table is cheaper than the script pack and near test")
 
 
 func _bodies(rng: RandomNumberGenerator, n: int) -> Array:
