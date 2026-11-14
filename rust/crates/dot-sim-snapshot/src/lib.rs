@@ -120,7 +120,8 @@ const PI: f64 = std::f64::consts::PI;
 pub const MAX_READ_BYTES: i64 = 1 << 20;
 
 /// GDScript's `int(float)` as the engine compiles it on x86-64 (`cvttsd2si`): a NaN or an
-/// out-of-range value is `i64::MIN`. Every caller masks the result to at most 32 bits.
+/// out-of-range value is `i64::MIN`. Callers mask the result to the field width.
+#[cfg(not(target_family = "wasm"))]
 #[inline]
 pub fn to_int(v: f64) -> i64 {
     if (-9.223_372_036_854_776e18..9.223_372_036_854_776e18).contains(&v) {
@@ -128,6 +129,15 @@ pub fn to_int(v: f64) -> i64 {
     } else {
         i64::MIN
     }
+}
+
+/// GDScript's `int(float)` as Emscripten compiles it for the web (`i64.trunc_sat_f64_s`): a NaN
+/// is 0 and an out-of-range value saturates, which is exactly Rust's `as`. Measured in Chromium
+/// on the dlink export: `int(nan)` 0, `int(1e300)` `i64::MAX`, `int(-1e300)` `i64::MIN`.
+#[cfg(target_family = "wasm")]
+#[inline]
+pub fn to_int(v: f64) -> i64 {
+    v as i64
 }
 
 /// Godot's `CLAMP`: a NaN passes through.

@@ -1,6 +1,6 @@
 # dot-sim on the web
 
-**Status: works, not shipped; it waits on an owner decision.** The real dot-sim extension, with all its modules, loads and runs in a Godot 4.7.2 web export built from the single-threaded dlink template. Its native paths are 3 to 7 times faster than the script twins in the browser. Shipping it still needs the blockers below fixed. Until then the web client keeps the script path, which is a complete fallback: every module has a script twin that produces the same bytes.
+**Status: works, being shipped (decided 2026-11-13).** The real dot-sim extension, with all its modules, loads and runs in a Godot 4.7.2 web export built from the single-threaded dlink template. Its native paths are 3 to 7 times faster than the script twins in the browser, and their bytes equal the script's on wasm too. The script path stays as the complete fallback: every module has a script twin that produces the same bytes, and a web export without the side module runs it.
 
 ## Build
 
@@ -27,7 +27,7 @@ The export preset ticks **Extensions Support**, sets **Thread Support** off and 
 | Suite on the dlink export | Result |
 | --- | --- |
 | `sim_selftest` (bots, brain parity, sight) | 9 passed, 0 failed |
-| `snapshot_selftest` (wire parity, codec) | 33 passed, **1 failed**: `4000 encodings equal to the bit` (round 759 pad 7: native `...201a...`, script `...241a...`) |
+| `snapshot_selftest` (wire parity, codec) | 34 passed, 0 failed (33/1 before the `to_int` fix below) |
 
 | Bench (same box, runs interleaved) | Script, plain export | Script, dlink export | Native, dlink export |
 | --- | --- | --- | --- |
@@ -48,8 +48,8 @@ The dlink export with dot-sim is about 1.2 MB larger after gzip than the plain e
 
 ## Blockers before shipping
 
-1. **dot-net gates the codec off on the web.** `dot_net_sim_codec.gd` checks `available()`, which is `enabled and not OS.has_feature("web") and ClassDB.class_exists(CLASS)`. Copies of that file are vendored in about nine repos. With the gate in place, the web client never uses the native codec even when it is loaded. The fix belongs to dot-net, not to this repo.
-2. **Encode parity fails once in 4000 on wasm.** The test's edge values include NaN, 1e300 and negative numbers. The likely cause is float-to-int conversion in Rust saturating on wasm while the script truncates differently. It must be root-caused and made bit-equal before a web client encodes with the codec.
+1. **dot-net gated the codec off on the web.** `DotNetSimCodec.available()` checked `not OS.has_feature("web")`; dot-net now checks only `ClassDB.class_exists` (the games link dot-net's checkout, so the one change reaches all of them).
+2. **Encode parity on wasm: fixed.** GDScript's `int(float)` is the platform's conversion. On x86-64 (`cvttsd2si`) a NaN or out-of-range value is `i64::MIN`; under Emscripten (`trunc_sat`) a NaN is 0 and the rest saturates, measured in Chromium: `int(nan)` 0, `int(1e300)` `i64::MAX`, `int(-1e300)` `i64::MIN`. `to_int` (dot-sim-snapshot) hard-coded the x86 answer, so a NaN or 1e300 in an unsigned field encoded differently (13 of the probe's edge cases). It now follows the target: Rust's saturating `as` on wasm, the x86 emulation elsewhere. Native x86 output is unchanged.
 3. **The FC web export has to change.** It needs the dlink nothreads template with Extensions Support, and the CDN must serve `index.side.wasm` and `dot_sim.wasm`. A plain template with any `.gdextension` in the pack refuses to start. That includes godot-sqlite's, which has web entries.
 4. **The build box needs the pinned nightly** with `rust-src` and the emscripten target, plus emsdk 3.1.74. There is no web CI job yet.
 
