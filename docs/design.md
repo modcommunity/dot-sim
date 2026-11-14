@@ -8,6 +8,7 @@ Native (Rust, GDExtension) twins of hot script code in the dot family, one modul
 | --- | --- | --- | --- | --- |
 | bots | `dot-sim-bots` | `DotSimBotSenses` | `DotBotBrain._candidates` (dot-bot) | the sight scan |
 | snapshot | `dot-sim-snapshot` | `DotSimSnapshotCodec` | `DotNetVar.write`/`read` behind `DotNetBehaviour._encode`/`read_state` (dot-net) | encode and decode; the same bytes, held by golden-byte and parity tests |
+| interp | `dot-sim-interp` | `DotSimInterpolator` | `DotNetInterpolator.apply` (dot-net): sample, extrapolation, resume ease, the writes and `_net_interpolated` | a client's per-frame draw of remote entities, to the bit; the script keeps its tracks for `value_at` and lag compensation (`examples/interp_selftest.tscn` runs both on seeded lossy streams frame for frame) |
 | motor | `dot-sim-motor` | `DotSimFpsBody` | `DotFpsPhysicsBody` (dot-player-controller): sweep, rest contact, overlap and their fallbacks; `DotFpsMotor`'s collide-and-slide and step (`_slide`, `_prefer_step`, `move_and_slide`) with `DotFpsHullBody`'s player hulls | the motor's collision queries and slide, to the bit (dot-player-controller's `motor_native_parity` replays recorded inputs at 22/33/66 Hz with and without hulls, and fuzzes queries and slides); `motor_tick` runs a whole `DotFpsMotor` tick (ground check, jumps, slide, launch, dash, wall run and wall jump, friction, acceleration, gravity, collide-and-slide) in one call, and `motor_native_tick_parity` compares it field by field with the script over recorded and seeded random input streams; crouch, view smoothing and the timers outside the motor stay in script; `DotSimMotorBatch.run` ticks a run of players' `motor_tick`s in one call (packed rows in, packed rows out), in order, each body in the hull world seeing the earlier ones where they came to rest, and `rollback` takes rows back when a player ends its tick elsewhere (`motor_batch_parity` holds it to the single calls to the bit, with pushes, teleports and deaths between) |
 
 ## Layout
@@ -17,12 +18,14 @@ Native (Rust, GDExtension) twins of hot script code in the dot family, one modul
 | `rust/crates/dot-sim-math` | `Vec3` and `rad_to_deg`, rounded as the engine rounds (f32 vectors, f64 script floats) |
 | `rust/crates/dot-sim-bots` | pure kernels over plain arrays; no engine types, tested with `cargo test` |
 | `rust/crates/dot-sim-snapshot` | the snapshot codec, pure, like bots |
+| `rust/crates/dot-sim-interp` | the interpolator's tracks and draw over an opaque value type (quaternions and colours blend in the engine), pure and tested |
 | `rust/crates/dot-sim-motor` | the motor's collision body over a `Space` trait (the engine queries) its slide loop (`slide`) and the whole motor tick (`full`), pure and tested with a fake floor; the gdext side is the engine `Space` |
-| `rust/crates/dot-sim-gdext` | the one cdylib (`dot_sim`): thin bindings, one cargo feature per module (`bots`, `snapshot`, `motor`), `web`/`web-nothreads` for the browser build |
+| `rust/crates/dot-sim-gdext` | the one cdylib (`dot_sim`): thin bindings, one cargo feature per module (`bots`, `brain`, `snapshot`, `interp`, `motor`), `web`/`web-nothreads` for the browser build |
 | `addons/dot_sim/dot_sim.gd` | `DotSim.has(module)`: which modules are loaded, safe with no library |
 | `ci/` | build matrix, installer and packaging ([native-ci.md](native-ci.md)); the installer writes the gitignored `addons/dot_sim/bin/<platform>/` and `.gdextension` |
 | `examples/sim_selftest.tscn` | the bots parity suite |
 | `examples/snapshot_selftest.tscn` | the snapshot parity suite (needs dot-net linked at `addons/dot_net`) |
+| `examples/interp_selftest.tscn` | the interpolator parity suite (needs dot-net linked at `addons/dot_net`) |
 
 Kernels live in pure crates so they test without an engine and a second binding (a standalone server, a tool) costs nothing.
 

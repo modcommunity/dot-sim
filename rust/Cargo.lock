@@ -31,10 +31,15 @@ version = "0.1.0"
 dependencies = [
  "dot-sim-bots",
  "dot-sim-brain",
+ "dot-sim-interp",
  "dot-sim-motor",
  "dot-sim-snapshot",
  "godot",
 ]
+
+[[package]]
+name = "dot-sim-interp"
+version = "0.1.0"
 
 [[package]]
 name = "dot-sim-math"

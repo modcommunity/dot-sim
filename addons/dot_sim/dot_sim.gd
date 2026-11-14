@@ -10,6 +10,7 @@ extends RefCounted
 const MODULES := {
 	&"bots": &"DotSimBotSenses",
 	&"snapshot": &"DotSimSnapshotCodec",
+	&"interp": &"DotSimInterpolator",
 	&"motor": &"DotSimFpsBody",
 }
 

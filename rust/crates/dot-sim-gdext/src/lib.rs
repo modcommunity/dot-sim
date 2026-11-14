@@ -10,6 +10,8 @@ mod bots;
 mod brain;
 #[cfg(feature = "motor")]
 mod hulls;
+#[cfg(feature = "interp")]
+mod interp;
 #[cfg(feature = "motor")]
 mod motor;
 #[cfg(feature = "snapshot")]
