@@ -12,6 +12,7 @@ const MODULES := {
 	&"snapshot": &"DotSimSnapshotCodec",
 	&"interp": &"DotSimInterpolator",
 	&"motor": &"DotSimFpsBody",
+	&"arms": &"DotSimViewArms",
 }
 
 

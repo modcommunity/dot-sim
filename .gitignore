@@ -13,6 +13,9 @@
 # The snapshot suite's (examples/snapshot_selftest): dot-net and its profiler.
 /addons/dot_net
 /addons/dot_profile
+# The arms parity test's script (examples/sim_selftest): dot-player-char's clearance scan.
+#   ln -s ../../../dot-player-char/addons/dot_player_char/nodes/dot_view_arms_clear.gd examples/linked/
+/examples/linked/
 
 # The built library and its .gdextension, written by ci/install.sh; never committed.
 /addons/dot_sim/bin/

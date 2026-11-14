@@ -33,6 +33,8 @@ func _run() -> void:
 		_test_scan_parity()
 		_test_brain_parity()
 		_bench_scan()
+	if DotSim.has(&"arms"):
+		_test_arms_parity()
 	print("")
 	print("%d passed, %d failed" % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
@@ -234,3 +236,68 @@ func _ids(list: Array) -> String:
 	for c: DotBotContact in list:
 		ids.append(str(c.id))
 	return ",".join(ids)
+
+
+## dot-player-char's clearance scan, linked for the arms parity test (see README); absent, the test is skipped.
+const ARMS_SCRIPT := "res://examples/linked/dot_view_arms_clear.gd"
+
+## Random arm poses compared one by one.
+const ARM_CASES := 4000
+
+
+func _test_arms_parity() -> void:
+	print("arms")
+	if not ResourceLoader.exists(ARMS_SCRIPT):
+		print("  skip  %s not linked" % ARMS_SCRIPT)
+		return
+	var clear: Script = load(ARMS_SCRIPT)
+	var native: Object = ClassDB.instantiate(&"DotSimViewArms")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261113
+	var same := 0
+	var buried := 0
+	var first_miss := ""
+	for i: int in ARM_CASES:
+		var c := _arm_case(rng)
+		var want: PackedFloat64Array = clear.scan(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8])
+		var got: PackedFloat64Array = native.clear_pole(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8])
+		if got == want:
+			same += 1
+		elif first_miss == "":
+			first_miss = "case %d: script %s native %s" % [i, want, got]
+		if want[4] > 0.0 or want[3] != c[8] + (0.0 - c[8]) * 0.35:
+			buried += 1
+	_check(same == ARM_CASES, "%d random arm poses: the native scan matches the script to the bit" % ARM_CASES, first_miss)
+	_check(buried > ARM_CASES / 4, "the poses reach the box (%d of %d turn or stay buried)" % [buried, ARM_CASES])
+	var t0 := Time.get_ticks_usec()
+	for i: int in 2000:
+		var c := _arm_case(rng)
+		clear.scan(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8])
+	var t1 := Time.get_ticks_usec()
+	for i: int in 2000:
+		var c := _arm_case(rng)
+		native.clear_pole(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8])
+	var t2 := Time.get_ticks_usec()
+	print("  bench 2000 scans (with case setup): script %d us, native %d us" % [t1 - t0, t2 - t1])
+
+
+## One random arm: shoulder, hand target, bone lengths, pole, unit shoulder-to-hand axis, a rigid
+## anchor transform, and a box in anchor space set around the arm so most poses touch it.
+func _arm_case(rng: RandomNumberGenerator) -> Array:
+	var shoulder := Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(1.2, 1.6), rng.randf_range(-0.2, 0.2))
+	var lengths := Vector2(rng.randf_range(0.2, 0.35), rng.randf_range(0.2, 0.35))
+	var reach := rng.randf_range(0.05, 1.05) * (lengths.x + lengths.y)
+	var aim := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
+	if aim.length_squared() < 0.01:
+		aim = Vector3.FORWARD
+	var target := shoulder + aim.normalized() * reach
+	var dir := (target - shoulder).normalized()
+	var pole := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
+	var axis := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
+	axis = axis.normalized() if axis.length_squared() > 0.01 else Vector3.UP
+	var to_anchor := Transform3D(Basis(axis, rng.randf_range(-PI, PI)), Vector3(rng.randf_range(-2, 2), rng.randf_range(-2, 2), rng.randf_range(-2, 2)))
+	var mid := to_anchor * shoulder.lerp(target, rng.randf_range(0.0, 1.0))
+	var size := Vector3(rng.randf_range(0.02, 0.4), rng.randf_range(0.02, 0.4), rng.randf_range(0.02, 0.4))
+	var box := AABB(mid - size * rng.randf_range(0.0, 1.0), size)
+	var up := Vector3(rng.randf_range(-0.2, 0.2), 1.0, rng.randf_range(-0.2, 0.2)).normalized()
+	return [shoulder, target, lengths, pole, dir, to_anchor, box, up, rng.randf_range(-80.0, 80.0)]

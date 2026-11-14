@@ -17,14 +17,16 @@ dot-sim-brain = { path = "../dot-sim-brain", optional = true }
 dot-sim-snapshot = { path = "../dot-sim-snapshot", optional = true }
 dot-sim-interp = { path = "../dot-sim-interp", optional = true }
 dot-sim-motor = { path = "../dot-sim-motor", optional = true }
+dot-sim-arms = { path = "../dot-sim-arms", optional = true }
 
 [features]
-default = ["bots", "brain", "snapshot", "interp", "motor"]
+default = ["bots", "brain", "snapshot", "interp", "motor", "arms"]
 bots = ["dep:dot-sim-bots"]
 brain = ["dep:dot-sim-brain", "bots"]
 snapshot = ["dep:dot-sim-snapshot"]
 interp = ["dep:dot-sim-interp"]
 motor = ["dep:dot-sim-motor"]
+arms = ["dep:dot-sim-arms"]
 # A web side module (wasm32-unknown-emscripten, nightly, -Zbuild-std); see docs/web.md.
 web = ["godot/api-custom", "godot/experimental-wasm", "godot/lazy-function-tables"]
 web-nothreads = ["web", "godot/experimental-wasm-nothreads"]

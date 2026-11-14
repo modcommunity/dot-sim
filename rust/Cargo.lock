@@ -12,6 +12,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dot-sim-arms"
+version = "0.1.0"
+dependencies = [
+ "dot-sim-math",
+]
+
+[[package]]
 name = "dot-sim-bots"
 version = "0.1.0"
 dependencies = [
@@ -29,6 +36,7 @@ dependencies = [
 name = "dot-sim-gdext"
 version = "0.1.0"
 dependencies = [
+ "dot-sim-arms",
  "dot-sim-bots",
  "dot-sim-brain",
  "dot-sim-interp",

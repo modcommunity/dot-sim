@@ -24,7 +24,7 @@ Link the sibling addons (`addons/dot_core`, `addons/dot_bot`), install a library
 godot --headless --path . res://examples/sim_selftest.tscn
 ```
 
-Without a library the suite checks the fallback and says the native half was skipped. `cargo test` in `rust/` tests the kernels alone.
+Its arms section also needs dot-player-char's scan linked: `ln -s ../../../dot-player-char/addons/dot_player_char/nodes/dot_view_arms_clear.gd examples/linked/` (skipped when absent). Without a library the suite checks the fallback and says the native half was skipped. `cargo test` in `rust/` tests the kernels alone.
 
 Design and numbers: [docs/design.md](docs/design.md).
 
